@@ -855,8 +855,8 @@ async function completeTask(taskId, completedOn) {
 
   // mirror VBA: remove log entries for same task logged in last 24h, then add new entry
   const cutoff = Date.now() - 86400000;
-  state.log = state.log.filter(e => !(e.task === task.name && new Date(e.loggedAt).getTime() >= cutoff));
-  state.log.push({ loggedAt: new Date().toISOString().slice(0,19), task: task.name, completedDate: completedStr, prevLastOccurrence: prevLast });
+  state.log = state.log.filter(e => !(( e.taskId === taskId || e.task === task.name) && new Date(e.loggedAt).getTime() >= cutoff));
+  state.log.push({ loggedAt: new Date().toISOString().slice(0,19), taskId, task: task.name, completedDate: completedStr, prevLastOccurrence: prevLast });
 
   task.lastOccurrence = completedStr;
   await saveState();
@@ -1055,14 +1055,17 @@ function renderLogTab() {
       <div class="card">
         ${visible.length === 0
           ? `<div class="empty-state">No tasks logged yet.</div>`
-          : visible.map((e, i) => `
+          : visible.map((e, i) => {
+              const liveTask = e.taskId != null ? state.tasks.find(t => t.id === e.taskId) : null;
+              const displayName = liveTask ? liveTask.name : e.task;
+              return `
             <div class="log-entry">
               <div class="log-date">${fmtDateShort(e.loggedAt.slice(0,10))}</div>
-              <div class="log-task">${escapeHtml(e.task)}</div>
+              <div class="log-task">${escapeHtml(displayName)}</div>
               <div class="log-done-date">${e.completedDate !== e.loggedAt.slice(0,10) ? `for ${fmtDateShort(e.completedDate)}` : ''}</div>
-              <button class="log-delete-btn" data-action="delete-log-entry" data-loggedAt="${escapeHtml(e.loggedAt)}" data-task="${escapeHtml(e.task)}" title="Remove this entry">×</button>
+              <button class="log-delete-btn" data-action="delete-log-entry" data-loggedat="${escapeHtml(e.loggedAt)}" data-taskid="${e.taskId ?? ''}" data-task="${escapeHtml(e.task)}" title="Remove this entry">×</button>
             </div>
-          `).join('')}
+          `}).join('')
       </div>
       ${sorted.length > logShowCount ? `<div class="show-more"><button data-action="show-more-log">Show more</button></div>` : ''}
     </div>
@@ -1242,10 +1245,13 @@ function attachHandlers() {
   document.querySelectorAll('[data-action="delete-log-entry"]').forEach(el => {
     el.addEventListener('click', async () => {
       const loggedAt = el.dataset.loggedat;
+      const taskIdAttr = el.dataset.taskid;
       const taskName = el.dataset.task;
       const entry = state.log.find(e => e.loggedAt === loggedAt);
       state.log = state.log.filter(e => e.loggedAt !== loggedAt);
-      const task = state.tasks.find(t => t.name === taskName);
+      const task = taskIdAttr
+        ? state.tasks.find(t => t.id === Number(taskIdAttr))
+        : state.tasks.find(t => t.name === taskName);
       if (task && entry) {
         if (entry.prevLastOccurrence !== undefined) {
           task.lastOccurrence = entry.prevLastOccurrence;
