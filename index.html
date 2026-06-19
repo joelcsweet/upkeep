@@ -823,7 +823,7 @@ async function completeTask(taskId, completedOn) {
   // mirror VBA: remove log entries for same task logged in last 24h, then add new entry
   const cutoff = Date.now() - 86400000;
   state.log = state.log.filter(e => !(e.task === task.name && new Date(e.loggedAt).getTime() >= cutoff));
-  state.log.push({ loggedAt: new Date().toISOString().slice(0,19), task: task.name, completedDate: completedStr });
+  state.log.push({ loggedAt: new Date().toISOString().slice(0,19), task: task.name, completedDate: completedStr, prevLastOccurrence: prevLast });
 
   task.lastOccurrence = completedStr;
   await saveState();
@@ -1208,13 +1208,18 @@ function attachHandlers() {
     el.addEventListener('click', async () => {
       const loggedAt = el.dataset.loggedat;
       const taskName = el.dataset.task;
+      const entry = state.log.find(e => e.loggedAt === loggedAt);
       state.log = state.log.filter(e => e.loggedAt !== loggedAt);
       const task = state.tasks.find(t => t.name === taskName);
-      if (task) {
-        const remaining = state.log
-          .filter(e => e.task === taskName)
-          .sort((a, b) => new Date(b.completedDate) - new Date(a.completedDate));
-        task.lastOccurrence = remaining.length > 0 ? remaining[0].completedDate : task.lastOccurrence;
+      if (task && entry) {
+        if (entry.prevLastOccurrence !== undefined) {
+          task.lastOccurrence = entry.prevLastOccurrence;
+        } else {
+          const remaining = state.log
+            .filter(e => e.task === taskName)
+            .sort((a, b) => new Date(b.completedDate) - new Date(a.completedDate));
+          if (remaining.length > 0) task.lastOccurrence = remaining[0].completedDate;
+        }
       }
       await saveState();
       render();
