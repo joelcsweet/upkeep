@@ -1,4 +1,4 @@
-const CACHE = 'upkeep-v2';
+const CACHE = 'upkeep-v3';
 const PRECACHE = [
   '/upkeep/',
   '/upkeep/index.html',
