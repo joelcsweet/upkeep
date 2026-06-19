@@ -118,6 +118,23 @@
     gap: 8px;
   }
 
+  .health-score {
+    margin-left: auto;
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.03em;
+    text-transform: none;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .health-number {
+    font-size: 18px;
+    font-weight: 600;
+    font-family: 'Source Serif 4', serif;
+  }
+
   .hero-label .count {
     font-family: 'Inter', sans-serif;
     font-weight: 600;
@@ -714,6 +731,16 @@ function getSortedActiveTasks() {
   return filtered;
 }
 
+function computeHealthScore() {
+  const active = state.tasks.filter(t => t.status === 'Active');
+  if (!active.length) return null;
+  const scores = active.map(t => {
+    const ratio = Math.min(computeMeta(t).overdueRatio, 2);
+    return ratio <= 0 ? 100 : Math.max(0, 100 - (ratio * 50));
+  });
+  return Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
+}
+
 function getDoNext() {
   return getSortedActiveTasks().slice(0, 5);
 }
@@ -968,6 +995,9 @@ function renderTasksTab() {
   const visibleRest = showAllSchedule ? rest : rest.slice(0, 8);
   const hasAnyTasks = state.tasks.length > 0;
 
+  const health = computeHealthScore();
+  const healthColor = health === null ? 'var(--ink-faint)' : health >= 70 ? '#4a7c59' : health >= 40 ? '#b07d2a' : '#b5563a';
+
   return `
     <div style="display:flex; justify-content:flex-end; padding: 0 0 4px;">
       <div class="filter-pills">
@@ -976,7 +1006,10 @@ function renderTasksTab() {
     </div>
 
     <div class="hero">
-      <div class="hero-label">Do next <span class="count">${doNext.length}</span></div>
+      <div class="hero-label">
+        <span>Do next <span class="count">${doNext.length}</span></span>
+        ${health !== null ? `<span class="health-score" style="color:${healthColor}">House health <span class="health-number" style="color:${healthColor}">${health}</span></span>` : ''}
+      </div>
       <div class="do-list">
         ${doNext.length === 0
           ? `<div class="do-empty">${hasAnyTasks ? 'Nothing urgent — the house is in good shape.' : 'Add your first task below to get started.'}</div>`
