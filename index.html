@@ -623,7 +623,7 @@ const FREQ_DAYS = {
 };
 const FREQUENCIES = Object.keys(FREQ_DAYS);
 
-let state = { tasks: [], log: [] };
+let state = { tasks: [], log: [], deletedIds: [] };
 let filterMode = 'All'; // All | Clean | Organise
 let activeTab = 'tasks'; // tasks | log
 let showAllSchedule = false;
@@ -743,7 +743,33 @@ function waitForFirebaseSync(timeoutMs) {
 function applyParsed(parsed) {
   state.tasks = parsed.tasks || [];
   state.log = parsed.log || [];
+  state.deletedIds = parsed.deletedIds || [];
   nextId = Math.max(0, ...state.tasks.map(t => t.id)) + 1;
+}
+
+function mergeStates(local, remote) {
+  const deletedIds = new Set([...(local.deletedIds || []), ...(remote.deletedIds || [])]);
+
+  const taskMap = new Map();
+  for (const t of [...(local.tasks || []), ...(remote.tasks || [])]) {
+    if (deletedIds.has(t.id)) continue;
+    const existing = taskMap.get(t.id);
+    if (!existing) { taskMap.set(t.id, { ...t }); continue; }
+    if (new Date(t.lastOccurrence) > new Date(existing.lastOccurrence)) {
+      taskMap.set(t.id, { ...t });
+    }
+  }
+
+  const logMap = new Map();
+  for (const e of [...(local.log || []), ...(remote.log || [])]) {
+    logMap.set(e.loggedAt + '|' + e.task, e);
+  }
+
+  return {
+    tasks: [...taskMap.values()],
+    log: [...logMap.values()],
+    deletedIds: [...deletedIds],
+  };
 }
 
 async function loadState() {
@@ -767,8 +793,9 @@ async function loadState() {
 
     const remote = await bridge.load(userId);
     if (remote) {
-      applyParsed(remote);
+      applyParsed(mergeStates(state, remote));
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      await bridge.save(userId, state);
       render();
       return;
     }
@@ -847,10 +874,12 @@ async function deleteTask(taskId) {
   const idx = state.tasks.findIndex(t => t.id === taskId);
   if (idx === -1) return;
   const [removed] = state.tasks.splice(idx, 1);
+  state.deletedIds = [...(state.deletedIds || []), taskId];
   await saveState();
   render();
   showToast(`Deleted "${removed.name}"`, async () => {
     state.tasks.splice(idx, 0, removed);
+    state.deletedIds = (state.deletedIds || []).filter(id => id !== taskId);
     await saveState();
     render();
   });
