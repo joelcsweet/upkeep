@@ -350,6 +350,19 @@
     font-size: 12px;
     font-style: italic;
   }
+  .log-delete-btn {
+    background: none;
+    border: none;
+    color: var(--ink-faint);
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 2px;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  .log-entry:hover .log-delete-btn { opacity: 1; }
+  .log-delete-btn:hover { color: var(--clay-deep); }
 
   .show-more {
     text-align: center;
@@ -1004,11 +1017,12 @@ function renderLogTab() {
       <div class="card">
         ${visible.length === 0
           ? `<div class="empty-state">No tasks logged yet.</div>`
-          : visible.map(e => `
+          : visible.map((e, i) => `
             <div class="log-entry">
               <div class="log-date">${fmtDateShort(e.loggedAt.slice(0,10))}</div>
               <div class="log-task">${escapeHtml(e.task)}</div>
               <div class="log-done-date">${e.completedDate !== e.loggedAt.slice(0,10) ? `for ${fmtDateShort(e.completedDate)}` : ''}</div>
+              <button class="log-delete-btn" data-action="delete-log-entry" data-loggedAt="${escapeHtml(e.loggedAt)}" data-task="${escapeHtml(e.task)}" title="Remove this entry">×</button>
             </div>
           `).join('')}
       </div>
@@ -1185,6 +1199,24 @@ function attachHandlers() {
       }
     };
     reader.readAsText(file);
+  });
+
+  document.querySelectorAll('[data-action="delete-log-entry"]').forEach(el => {
+    el.addEventListener('click', async () => {
+      const loggedAt = el.dataset.loggedat;
+      const taskName = el.dataset.task;
+      state.log = state.log.filter(e => e.loggedAt !== loggedAt);
+      const task = state.tasks.find(t => t.name === taskName);
+      if (task) {
+        const remaining = state.log
+          .filter(e => e.task === taskName)
+          .sort((a, b) => new Date(b.completedDate) - new Date(a.completedDate));
+        task.lastOccurrence = remaining.length > 0 ? remaining[0].completedDate : task.lastOccurrence;
+      }
+      await saveState();
+      render();
+      showToast('Entry removed');
+    });
   });
 
   const clearHistoryBtn = document.querySelector('[data-action="clear-history"]');
