@@ -934,8 +934,10 @@ function renderTasksTab() {
   const hasAnyTasks = state.tasks.length > 0;
 
   return `
-    <div class="filter-pills" style="padding: 0 0 4px;">
-      ${['All','Clean','Organise'].map(f => `<div class="pill ${filterMode===f?'active':''}" data-action="filter" data-filter="${f}">${f}</div>`).join('')}
+    <div style="display:flex; justify-content:flex-end; padding: 0 0 4px;">
+      <div class="filter-pills">
+        ${['All','Clean','Organise'].map(f => `<div class="pill ${filterMode===f?'active':''}" data-action="filter" data-filter="${f}">${f}</div>`).join('')}
+      </div>
     </div>
 
     <div class="hero">
