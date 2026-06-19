@@ -934,6 +934,10 @@ function renderTasksTab() {
   const hasAnyTasks = state.tasks.length > 0;
 
   return `
+    <div class="filter-pills" style="padding: 0 0 4px;">
+      ${['All','Clean','Organise'].map(f => `<div class="pill ${filterMode===f?'active':''}" data-action="filter" data-filter="${f}">${f}</div>`).join('')}
+    </div>
+
     <div class="hero">
       <div class="hero-label">Do next <span class="count">${doNext.length}</span></div>
       <div class="do-list">
@@ -946,9 +950,6 @@ function renderTasksTab() {
     <div class="section">
       <div class="section-head">
         <div class="section-title">Schedule</div>
-        <div class="filter-pills">
-          ${['All','Clean','Organise'].map(f => `<div class="pill ${filterMode===f?'active':''}" data-action="filter" data-filter="${f}">${f}</div>`).join('')}
-        </div>
       </div>
       <div class="card">
         ${rest.length === 0
