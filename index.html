@@ -750,7 +750,7 @@ async function loadState() {
   // 1. Show cached local data instantly so the app isn't blank while syncing
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) applyParsed(JSON.parse(raw));
+    if (raw) { applyParsed(JSON.parse(raw)); render(); }
   } catch (e) { /* ignore */ }
 
   // 2. Once signed in, pull the synced copy from Firestore (source of truth)
@@ -774,7 +774,7 @@ async function loadState() {
     }
   } catch (e) {
     console.error('Firestore load failed, using local data', e);
-    if (state.tasks.length) showToast('Could not sync — showing data saved on this device');
+    if (state.tasks.length) { showToast('Could not sync — showing data saved on this device'); render(); return; }
   }
 
   // 3. No remote data and no local cache yet → seed with defaults
