@@ -641,7 +641,7 @@ const FREQ_DAYS = {
 };
 const FREQUENCIES = Object.keys(FREQ_DAYS);
 
-let state = { tasks: [], log: [], deletedIds: [] };
+let state = { tasks: [], log: [], deletedIds: [], deletedLogKeys: [] };
 let filterMode = 'All'; // All | Clean | Organise
 let activeTab = 'tasks'; // tasks | log
 let showAllSchedule = false;
@@ -776,6 +776,7 @@ function applyParsed(parsed) {
   state.tasks = parsed.tasks || [];
   state.log = parsed.log || [];
   state.deletedIds = parsed.deletedIds || [];
+  state.deletedLogKeys = parsed.deletedLogKeys || [];
   nextId = Math.max(0, ...state.tasks.map(t => t.id)) + 1;
 }
 
@@ -799,15 +800,20 @@ function mergeStates(local, remote) {
     }
   }
 
+  const deletedLogKeys = new Set([...(local.deletedLogKeys || []), ...(remote.deletedLogKeys || [])]);
+
   const logMap = new Map();
   for (const e of [...(local.log || []), ...(remote.log || [])]) {
-    logMap.set(e.loggedAt + '|' + e.task, e);
+    const key = e.loggedAt + '|' + e.task;
+    if (deletedLogKeys.has(key)) continue;
+    logMap.set(key, e);
   }
 
   return {
     tasks: [...taskMap.values()],
     log: [...logMap.values()],
     deletedIds: [...deletedIds],
+    deletedLogKeys: [...deletedLogKeys],
   };
 }
 
@@ -1298,6 +1304,7 @@ function attachHandlers() {
       const taskIdAttr = el.dataset.taskid;
       const taskName = el.dataset.task;
       const entry = state.log.find(e => e.loggedAt === loggedAt);
+      if (entry) state.deletedLogKeys = [...(state.deletedLogKeys || []), entry.loggedAt + '|' + entry.task];
       state.log = state.log.filter(e => e.loggedAt !== loggedAt);
       const task = taskIdAttr
         ? state.tasks.find(t => t.id === Number(taskIdAttr))
@@ -1311,6 +1318,7 @@ function attachHandlers() {
             .sort((a, b) => new Date(b.completedDate) - new Date(a.completedDate));
           if (remaining.length > 0) task.lastOccurrence = remaining[0].completedDate;
         }
+        task.updatedAt = new Date().toISOString();
       }
       await saveState();
       render();
@@ -1321,6 +1329,7 @@ function attachHandlers() {
   const clearHistoryBtn = document.querySelector('[data-action="clear-history"]');
   if (clearHistoryBtn) clearHistoryBtn.addEventListener('click', () => {
     if (!confirm('Clear all history entries? Your tasks will stay.')) return;
+    state.deletedLogKeys = [...(state.deletedLogKeys || []), ...state.log.map(e => e.loggedAt + '|' + e.task)];
     state.log = [];
     saveState();
     render();
@@ -1330,6 +1339,8 @@ function attachHandlers() {
   const resetAllBtn = document.querySelector('[data-action="reset-all"]');
   if (resetAllBtn) resetAllBtn.addEventListener('click', () => {
     if (!confirm('Delete all tasks and history? This can\'t be undone.')) return;
+    state.deletedIds = [...(state.deletedIds || []), ...state.tasks.map(t => t.id)];
+    state.deletedLogKeys = [...(state.deletedLogKeys || []), ...state.log.map(e => e.loggedAt + '|' + e.task)];
     state.tasks = [];
     state.log = [];
     saveState();
