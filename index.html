@@ -816,14 +816,14 @@ async function loadState() {
 
     // bridge.ready can hang indefinitely if sign-in is misconfigured (e.g. Anonymous
     // auth disabled in Firebase) — race it against a timeout so we always fall back.
-    const timeout = (ms) => new Promise((_, reject) => setTimeout(() => reject(new Error('sign-in timed out')), ms));
+    const timeout = (ms) => new Promise((_, reject) => setTimeout(() => reject(new Error('timed out')), ms));
     userId = await Promise.race([bridge.ready, timeout(8000)]);
 
-    const remote = await bridge.load(userId);
+    const remote = await Promise.race([bridge.load(userId), timeout(8000)]);
     if (remote) {
       applyParsed(mergeStates(state, remote));
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-      await bridge.save(userId, state);
+      bridge.save(userId, state).catch(() => {});
       render();
       return;
     }
@@ -838,7 +838,8 @@ async function loadState() {
     state.log = JSON.parse(JSON.stringify(DEFAULT_LOG));
     nextId = Math.max(0, ...state.tasks.map(t => t.id)) + 1;
   }
-  await saveState();
+  saveState();
+  render();
 }
 
 async function saveState() {
@@ -848,7 +849,7 @@ async function saveState() {
     console.error('Local save failed', e);
   }
   try {
-    if (userId && window.firebaseSync) await window.firebaseSync.save(userId, state);
+    if (userId && window.firebaseSync) window.firebaseSync.save(userId, state).catch(() => {});
   } catch (e) {
     console.error('Sync failed — saved locally only', e);
     showToast('Saved on this device, but sync failed');
