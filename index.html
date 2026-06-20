@@ -787,8 +787,15 @@ function mergeStates(local, remote) {
     if (deletedIds.has(t.id)) continue;
     const existing = taskMap.get(t.id);
     if (!existing) { taskMap.set(t.id, { ...t }); continue; }
-    if (new Date(t.lastOccurrence) > new Date(existing.lastOccurrence)) {
+    // Conflict: prefer whichever copy was modified most recently. updatedAt is the
+    // source of truth; fall back to lastOccurrence only for legacy entries that
+    // predate updatedAt (and a copy WITH updatedAt always beats one without).
+    if (t.updatedAt && existing.updatedAt) {
+      if (new Date(t.updatedAt) > new Date(existing.updatedAt)) taskMap.set(t.id, { ...t });
+    } else if (t.updatedAt && !existing.updatedAt) {
       taskMap.set(t.id, { ...t });
+    } else if (!t.updatedAt && !existing.updatedAt) {
+      if (new Date(t.lastOccurrence) > new Date(existing.lastOccurrence)) taskMap.set(t.id, { ...t });
     }
   }
 
@@ -891,12 +898,15 @@ async function completeTask(taskId, completedOn) {
   state.log = state.log.filter(e => !(( e.taskId === taskId || e.task === task.name) && new Date(e.loggedAt).getTime() >= cutoff));
   state.log.push({ loggedAt: new Date().toISOString().slice(0,19), taskId, task: task.name, completedDate: completedStr, prevLastOccurrence: prevLast });
 
+  const prevUpdatedAt = task.updatedAt;
   task.lastOccurrence = completedStr;
+  task.updatedAt = new Date().toISOString();
   await saveState();
   render();
   const dateNote = completedStr === toDateStr(todayDate()) ? '' : ` for ${fmtDateShort(completedStr)}`;
   showToast(`Marked "${task.name}" done${dateNote}`, async () => {
     task.lastOccurrence = prevLast;
+    task.updatedAt = prevUpdatedAt;
     state.log.pop();
     await saveState();
     render();
@@ -919,12 +929,13 @@ async function deleteTask(taskId) {
 }
 
 async function saveTaskForm(formData, editId) {
+  const now = new Date().toISOString();
   if (editId) {
     const t = state.tasks.find(x => x.id === editId);
     if (!t) { showToast('Could not find that task to update'); return; }
-    Object.assign(t, formData);
+    Object.assign(t, formData, { updatedAt: now });
   } else {
-    state.tasks.push({ id: nextId++, status: 'Active', ...formData });
+    state.tasks.push({ id: nextId++, status: 'Active', ...formData, updatedAt: now });
   }
   addFormOpen = false;
   editingId = null;
