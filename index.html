@@ -1104,7 +1104,7 @@ function renderLogTab() {
               <div class="log-done-date">${e.completedDate !== e.loggedAt.slice(0,10) ? `for ${fmtDateShort(e.completedDate)}` : ''}</div>
               <button class="log-delete-btn" data-action="delete-log-entry" data-loggedat="${escapeHtml(e.loggedAt)}" data-taskid="${e.taskId ?? ''}" data-task="${escapeHtml(e.task)}" title="Remove this entry">×</button>
             </div>
-          `}).join('')
+          `}).join('')}
       </div>
       ${sorted.length > logShowCount ? `<div class="show-more"><button data-action="show-more-log">Show more</button></div>` : ''}
     </div>
