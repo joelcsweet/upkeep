@@ -1420,7 +1420,6 @@ function renderSettingsTab() {
         </div>
         <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
           <button class="btn btn-primary" style="align-self:flex-start;" data-action="save-todoist-url">Save</button>
-          ${state.todoistSheetUrl ? `<button class="btn btn-ghost" style="align-self:flex-start;" data-action="refresh-todoist">Refresh now</button>` : ''}
           ${state.todoistStatsFetchedAt ? `<span style="font-size:12px; color:var(--ink-faint);">Last fetched ${fmtDateShort(state.todoistStatsFetchedAt.slice(0,10))}</span>` : ''}
         </div>
       </div>
@@ -1599,12 +1598,6 @@ function attachHandlers() {
     await saveState();
     render();
     if (url) refreshTodoistStats(true);
-  });
-
-  const refreshTodoistBtn = document.querySelector('[data-action="refresh-todoist"]');
-  if (refreshTodoistBtn) refreshTodoistBtn.addEventListener('click', () => {
-    showToast('Refreshing Todoist stats…');
-    refreshTodoistStats(true);
   });
 
   const clearHistoryBtn = document.querySelector('[data-action="clear-history"]');
