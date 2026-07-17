@@ -313,41 +313,6 @@
     color: var(--ink-soft);
   }
 
-  .search-bar {
-    position: relative;
-    margin-bottom: 14px;
-  }
-  .search-bar input {
-    width: 100%;
-    font-family: 'Inter', sans-serif;
-    font-size: 14px;
-    padding: 10px 36px 10px 13px;
-    border: 1px solid var(--rule-strong);
-    border-radius: 8px;
-    background: var(--paper-raised);
-    color: var(--ink);
-    outline: none;
-    box-sizing: border-box;
-  }
-  .search-bar input:focus {
-    border-color: var(--sage);
-    box-shadow: 0 0 0 3px var(--sage-soft);
-  }
-  .search-clear {
-    position: absolute;
-    right: 8px;
-    top: 50%;
-    transform: translateY(-50%);
-    background: none;
-    border: none;
-    color: var(--ink-faint);
-    font-size: 18px;
-    line-height: 1;
-    cursor: pointer;
-    padding: 4px 6px;
-  }
-  .search-clear:hover { color: var(--clay-deep); }
-
   .filter-pills {
     display: flex;
     gap: 6px;
@@ -523,10 +488,14 @@
     display: flex;
     gap: 4px;
     opacity: 0;
+    pointer-events: none;
     transition: opacity 0.15s ease;
     flex: 0 0 auto;
   }
-  .task-row:hover .row-actions { opacity: 1; }
+  .task-row:hover .row-actions { opacity: 1; pointer-events: auto; }
+  @media (hover: none) {
+    .row-actions { opacity: 1; pointer-events: auto; }
+  }
   .icon-btn {
     width: 26px; height: 26px;
     border-radius: 6px;
@@ -685,7 +654,6 @@ let editingId = null;
 let backdatingId = null;
 let addFormOpen = false;
 let nextId = 1;
-let searchQuery = '';
 
 function daysBetween(a, b) {
   const ms = b.setHours(0,0,0,0) - a.setHours(0,0,0,0);
@@ -758,12 +726,7 @@ function getSortedActiveTasks() {
   const active = state.tasks.filter(t => t.status === 'Active');
   const withMeta = active.map(t => ({ task: t, meta: computeMeta(t) }));
 
-  const query = searchQuery.trim().toLowerCase();
-  const filtered = withMeta.filter(({ task, meta }) => {
-    if (!taskMatchesFilter(meta, filterMode)) return false;
-    if (query && !task.name.toLowerCase().includes(query)) return false;
-    return true;
-  });
+  const filtered = withMeta.filter(({ meta }) => taskMatchesFilter(meta, filterMode));
 
   // sort: StatusSort asc (n/a, all active) -> OverdueByRule desc (overdueDays>=100 first)
   // -> Override desc (Yes before No) -> SortMetric desc
@@ -1101,11 +1064,6 @@ function renderTasksTab() {
   const healthLabel = filterMode === 'All' ? 'House health' : `House health · ${filterMode}`;
 
   return `
-    <div class="search-bar">
-      <input type="text" id="task-search" placeholder="Search tasks…" value="${escapeHtml(searchQuery)}" autocomplete="off">
-      ${searchQuery ? `<button class="search-clear" data-action="clear-search" aria-label="Clear search">×</button>` : ''}
-    </div>
-
     <div style="display:flex; justify-content:flex-end; padding: 0 0 4px;">
       <div class="filter-pills">
         ${['All','Clean','Organise'].map(f => `<div class="pill ${filterMode===f?'active':''}" data-action="filter" data-filter="${f}">${f}</div>`).join('')}
@@ -1119,7 +1077,7 @@ function renderTasksTab() {
       </div>
       <div class="do-list">
         ${doNext.length === 0
-          ? `<div class="do-empty">${searchQuery ? `No tasks match "${escapeHtml(searchQuery)}".` : hasAnyTasks ? 'Nothing urgent — the house is in good shape.' : 'Add your first task below to get started.'}</div>`
+          ? `<div class="do-empty">${hasAnyTasks ? 'Nothing urgent — the house is in good shape.' : 'Add your first task below to get started.'}</div>`
           : doNext.map(item => renderTaskRow(item)).join('')}
       </div>
     </div>
@@ -1130,7 +1088,7 @@ function renderTasksTab() {
       </div>
       <div class="card">
         ${rest.length === 0
-          ? `<div class="empty-state">${searchQuery ? `No more matches for "${escapeHtml(searchQuery)}".` : hasAnyTasks ? `No more active tasks${filterMode!=='All' ? ` in "${filterMode}"` : ''}.` : 'No tasks yet — add one below.'}</div>`
+          ? `<div class="empty-state">${hasAnyTasks ? `No more active tasks${filterMode!=='All' ? ` in "${filterMode}"` : ''}.` : 'No tasks yet — add one below.'}</div>`
           : visibleRest.map(item => renderTaskRow(item)).join('')}
       </div>
       ${rest.length > 8 ? `<div class="show-more"><button data-action="toggle-schedule">${showAllSchedule ? 'Show less' : `Show ${rest.length - 8} more`}</button></div>` : ''}
@@ -1314,10 +1272,6 @@ function render() {
   const app = document.getElementById('app');
   const overdueCount = getSortedActiveTasks().filter(item => item.meta.overdueDays >= 0).length;
 
-  const searchEl = document.getElementById('task-search');
-  const searchWasFocused = document.activeElement === searchEl;
-  const searchSelStart = searchWasFocused ? searchEl.selectionStart : null;
-
   app.innerHTML = `
     <header class="top">
       <div class="wordmark">Upkeep<span class="dot">.</span></div>
@@ -1336,14 +1290,6 @@ function render() {
   `;
 
   attachHandlers();
-
-  if (searchWasFocused) {
-    const newSearchEl = document.getElementById('task-search');
-    if (newSearchEl) {
-      newSearchEl.focus();
-      newSearchEl.setSelectionRange(searchSelStart, searchSelStart);
-    }
-  }
 }
 
 function attachHandlers() {
@@ -1383,19 +1329,6 @@ function attachHandlers() {
 
   document.querySelectorAll('[data-action="filter"]').forEach(el => {
     el.addEventListener('click', () => { filterMode = el.dataset.filter; render(); });
-  });
-
-  const searchInput = document.getElementById('task-search');
-  if (searchInput) searchInput.addEventListener('input', () => {
-    searchQuery = searchInput.value;
-    render();
-  });
-
-  const clearSearch = document.querySelector('[data-action="clear-search"]');
-  if (clearSearch) clearSearch.addEventListener('click', () => {
-    searchQuery = '';
-    render();
-    document.getElementById('task-search')?.focus();
   });
 
   document.querySelectorAll('[data-action="tab"]').forEach(el => {
