@@ -1312,11 +1312,15 @@ function renderStatsTab() {
             <div style="font-size:32px; font-family:'Source Serif 4', serif; font-weight:600; color:var(--ink); line-height:1.2;">${latest}</div>
           </div>
         ` : ''}
-        ${(cleanScore !== null || organiseScore !== null || avgLateness !== null) ? `
+        ${(cleanScore !== null || organiseScore !== null) ? `
           <div style="display:flex; gap:20px; flex-wrap:wrap; margin-bottom:12px;">
-            ${cleanScore !== null ? `<div><div style="font-size:11px; color:var(--ink-faint); text-transform:uppercase; letter-spacing:0.04em;">Clean score</div><div style="font-size:18px; font-family:'Source Serif 4', serif; font-weight:600;">${cleanScore}</div></div>` : ''}
-            ${organiseScore !== null ? `<div><div style="font-size:11px; color:var(--ink-faint); text-transform:uppercase; letter-spacing:0.04em;">Organise score</div><div style="font-size:18px; font-family:'Source Serif 4', serif; font-weight:600;">${organiseScore}</div></div>` : ''}
-            ${avgLateness !== null ? `<div><div style="font-size:11px; color:var(--ink-faint); text-transform:uppercase; letter-spacing:0.04em;">Avg days late</div><div style="font-size:18px; font-family:'Source Serif 4', serif; font-weight:600;">${avgLateness.toFixed(1)}d</div></div>` : ''}
+            ${cleanScore !== null ? `<div><div style="font-size:11px; color:var(--ink-faint); text-transform:uppercase; letter-spacing:0.04em;">Clean</div><div style="font-size:18px; font-family:'Source Serif 4', serif; font-weight:600;">${cleanScore}</div></div>` : ''}
+            ${organiseScore !== null ? `<div><div style="font-size:11px; color:var(--ink-faint); text-transform:uppercase; letter-spacing:0.04em;">Organise</div><div style="font-size:18px; font-family:'Source Serif 4', serif; font-weight:600;">${organiseScore}</div></div>` : ''}
+          </div>
+        ` : ''}
+        ${avgLateness !== null ? `
+          <div style="display:flex; gap:20px; flex-wrap:wrap; margin-bottom:12px;">
+            <div><div style="font-size:11px; color:var(--ink-faint); text-transform:uppercase; letter-spacing:0.04em;">Avg days late</div><div style="font-size:18px; font-family:'Source Serif 4', serif; font-weight:600;">${avgLateness.toFixed(1)}d</div></div>
           </div>
         ` : ''}
         ${renderLineChart(history, { getValue: h => h.score, yMin: 0, yMax: 100, color: 'var(--clay)', areaColor: 'var(--clay-soft)', emptyMessage: 'No score history yet — check back after using the app for a few days.' })}
