@@ -1295,10 +1295,6 @@ function renderStatsTab() {
   const latest = history.length ? history[history.length - 1].score : null;
 
   const avgLateness = computeAvgLateness();
-  const latenessLabel = avgLateness === null ? null
-    : Math.abs(avgLateness) < 0.05 ? 'On time on average'
-    : avgLateness > 0 ? `${avgLateness.toFixed(1)}d late on average`
-    : `${Math.abs(avgLateness).toFixed(1)}d early on average`;
 
   const todoist = [...(state.todoistStats || [])].sort((a, b) => a.date.localeCompare(b.date));
   const latestTodoist = todoist.length ? todoist[todoist.length - 1] : null;
@@ -1314,7 +1310,12 @@ function renderStatsTab() {
             <div style="font-size:32px; font-family:'Source Serif 4', serif; font-weight:600; color:var(--ink); line-height:1.2;">${latest}</div>
           </div>
         ` : ''}
-        ${latenessLabel !== null ? `<div style="font-size:13px; color:var(--ink-faint); margin-bottom:12px;">${latenessLabel}</div>` : ''}
+        ${avgLateness !== null ? `
+          <div style="margin-bottom:12px;">
+            <div style="font-size:11px; color:var(--ink-faint); text-transform:uppercase; letter-spacing:0.04em;">Avg days late</div>
+            <div style="font-size:18px; font-family:'Source Serif 4', serif; font-weight:600;">${avgLateness.toFixed(1)}d</div>
+          </div>
+        ` : ''}
         ${renderLineChart(history, { getValue: h => h.score, yMin: 0, yMax: 100, color: 'var(--clay)', areaColor: 'var(--clay-soft)', emptyMessage: 'No score history yet — check back after using the app for a few days.' })}
       </div>
     </div>
