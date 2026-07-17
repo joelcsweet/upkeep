@@ -747,6 +747,26 @@ function getSortedActiveTasks() {
   return filtered;
 }
 
+function computeAvgLateness() {
+  try {
+    const values = [];
+    for (const e of state.log) {
+      if (e.taskId == null || e.prevLastOccurrence == null) continue;
+      const task = state.tasks.find(t => t.id === e.taskId);
+      if (!task) continue;
+      const freqDays = FREQ_DAYS[task.frequency] || 30;
+      const deadline = parseDate(e.prevLastOccurrence);
+      deadline.setDate(deadline.getDate() + freqDays);
+      const completed = parseDate(e.completedDate);
+      values.push(daysBetween(deadline, completed));
+    }
+    if (!values.length) return null;
+    return values.reduce((a, b) => a + b, 0) / values.length;
+  } catch (e) {
+    return null;
+  }
+}
+
 function computeHealthScore(filter = filterMode) {
   try {
     const active = state.tasks.filter(t => t.status === 'Active' && t.lastOccurrence);
@@ -1271,6 +1291,12 @@ function renderStatsTab() {
   const history = [...(state.scoreHistory || [])].sort((a, b) => a.date.localeCompare(b.date));
   const latest = history.length ? history[history.length - 1].score : null;
 
+  const avgLateness = computeAvgLateness();
+  const latenessLabel = avgLateness === null ? null
+    : Math.abs(avgLateness) < 0.05 ? 'On time on average'
+    : avgLateness > 0 ? `${avgLateness.toFixed(1)}d late on average`
+    : `${Math.abs(avgLateness).toFixed(1)}d early on average`;
+
   const todoist = [...(state.todoistStats || [])].sort((a, b) => a.date.localeCompare(b.date));
   const latestTodoist = todoist.length ? todoist[todoist.length - 1] : null;
   const ageMax = todoist.length ? Math.max(10, Math.ceil(Math.max(...todoist.map(t => t.avgTaskAgeDays)) / 10) * 10) : 10;
@@ -1279,7 +1305,8 @@ function renderStatsTab() {
     <div class="section">
       <div class="section-head"><div class="section-title">Score over time</div></div>
       <div class="card" style="padding: 20px;">
-        ${latest !== null ? `<div style="font-size:13px; color:var(--ink-faint); margin-bottom:12px;">Latest: <strong style="color:var(--ink);">${latest}</strong></div>` : ''}
+        ${latest !== null ? `<div style="font-size:13px; color:var(--ink-faint); margin-bottom:4px;">Latest: <strong style="color:var(--ink);">${latest}</strong></div>` : ''}
+        ${latenessLabel !== null ? `<div style="font-size:13px; color:var(--ink-faint); margin-bottom:12px;">${latenessLabel}</div>` : ''}
         ${renderLineChart(history, { getValue: h => h.score, yMin: 0, yMax: 100, color: 'var(--clay)', areaColor: 'var(--clay-soft)', emptyMessage: 'No score history yet — check back after using the app for a few days.' })}
       </div>
     </div>
