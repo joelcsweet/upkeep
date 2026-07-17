@@ -747,17 +747,20 @@ function getSortedActiveTasks() {
   return filtered;
 }
 
-function computeAvgLateness() {
+function computeAvgLateness(windowDays = 90) {
   try {
+    const cutoff = todayDate();
+    cutoff.setDate(cutoff.getDate() - windowDays);
     const values = [];
     for (const e of state.log) {
       if (e.taskId == null || e.prevLastOccurrence == null) continue;
+      const completed = parseDate(e.completedDate);
+      if (completed < cutoff) continue;
       const task = state.tasks.find(t => t.id === e.taskId);
       if (!task) continue;
       const freqDays = FREQ_DAYS[task.frequency] || 30;
       const deadline = parseDate(e.prevLastOccurrence);
       deadline.setDate(deadline.getDate() + freqDays);
-      const completed = parseDate(e.completedDate);
       values.push(daysBetween(deadline, completed));
     }
     if (!values.length) return null;
@@ -1303,9 +1306,14 @@ function renderStatsTab() {
 
   return `
     <div class="section">
-      <div class="section-head"><div class="section-title">Score over time</div></div>
+      <div class="section-head"><div class="section-title">Upkeep</div></div>
       <div class="card" style="padding: 20px;">
-        ${latest !== null ? `<div style="font-size:13px; color:var(--ink-faint); margin-bottom:4px;">Latest: <strong style="color:var(--ink);">${latest}</strong></div>` : ''}
+        ${latest !== null ? `
+          <div style="margin-bottom:4px;">
+            <div style="font-size:11px; color:var(--ink-faint); text-transform:uppercase; letter-spacing:0.04em;">House Health Score</div>
+            <div style="font-size:32px; font-family:'Source Serif 4', serif; font-weight:600; color:var(--ink); line-height:1.2;">${latest}</div>
+          </div>
+        ` : ''}
         ${latenessLabel !== null ? `<div style="font-size:13px; color:var(--ink-faint); margin-bottom:12px;">${latenessLabel}</div>` : ''}
         ${renderLineChart(history, { getValue: h => h.score, yMin: 0, yMax: 100, color: 'var(--clay)', areaColor: 'var(--clay-soft)', emptyMessage: 'No score history yet — check back after using the app for a few days.' })}
       </div>
@@ -1313,11 +1321,12 @@ function renderStatsTab() {
 
     ${state.todoistSheetUrl ? `
     <div class="section">
-      <div class="section-head"><div class="section-title">Todoist — average task age</div></div>
+      <div class="section-head"><div class="section-title">ToDoist</div></div>
       <div class="card" style="padding: 20px;">
         ${latestTodoist ? `
-          <div style="font-size:13px; color:var(--ink-faint); margin-bottom:12px;">
-            Latest: <strong style="color:var(--ink);">${latestTodoist.avgTaskAgeDays.toFixed(1)}d</strong>
+          <div style="margin-bottom:12px;">
+            <div style="font-size:11px; color:var(--ink-faint); text-transform:uppercase; letter-spacing:0.04em;">Average Task Age</div>
+            <div style="font-size:32px; font-family:'Source Serif 4', serif; font-weight:600; color:var(--ink); line-height:1.2;">${latestTodoist.avgTaskAgeDays.toFixed(1)}<span style="font-size:16px; font-weight:500;">d</span></div>
           </div>
           <div style="display:flex; gap:20px; flex-wrap:wrap; margin-bottom:16px;">
             <div><div style="font-size:11px; color:var(--ink-faint); text-transform:uppercase; letter-spacing:0.04em;">Active tasks</div><div style="font-size:18px; font-family:'Source Serif 4', serif; font-weight:600;">${latestTodoist.activeTasks}</div></div>
