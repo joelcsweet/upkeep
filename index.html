@@ -912,7 +912,8 @@ function parseSheetDate(s) {
 }
 
 async function fetchTodoistStats(url) {
-  const res = await fetch(url);
+  const bustUrl = url + (url.includes('?') ? '&' : '?') + '_cb=' + Date.now();
+  const res = await fetch(bustUrl, { cache: 'no-store' });
   if (!res.ok) throw new Error('Fetch failed: ' + res.status);
   const text = await res.text();
   const rows = parseCsv(text);
@@ -980,6 +981,30 @@ async function loadState() {
   }
   saveState();
   render();
+}
+
+async function syncFromRemote() {
+  if (!userId || !window.firebaseSync) return;
+  try {
+    const timeout = (ms) => new Promise((_, reject) => setTimeout(() => reject(new Error('timed out')), ms));
+    const remote = await Promise.race([window.firebaseSync.load(userId), timeout(8000)]);
+    if (remote) {
+      applyParsed(mergeStates(state, remote));
+      recordScoreSnapshot();
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      window.firebaseSync.save(userId, state).catch(() => {});
+      render();
+    }
+  } catch (e) {
+    console.error('Background sync failed', e);
+  }
+}
+
+function maybeRefreshTodoist() {
+  const lastFetchDate = state.todoistStatsFetchedAt ? state.todoistStatsFetchedAt.slice(0, 10) : null;
+  if (state.todoistSheetUrl && lastFetchDate !== toDateStr(todayDate())) {
+    refreshTodoistStats(false);
+  }
 }
 
 async function saveState() {
@@ -1685,12 +1710,23 @@ window.addEventListener('firebase-auth-changed', (e) => {
     if (bridge) authState = { email: bridge.currentEmail(), isAnonymous: bridge.isAnonymous() };
   } catch (e) { /* ignore */ }
   render();
-
-  const lastFetchDate = state.todoistStatsFetchedAt ? state.todoistStatsFetchedAt.slice(0, 10) : null;
-  if (state.todoistSheetUrl && lastFetchDate !== toDateStr(todayDate())) {
-    refreshTodoistStats(false);
-  }
+  maybeRefreshTodoist();
 })();
+
+// PWAs commonly stay "open" in the background (tab switch, app switcher, phone lock)
+// without a real reload — re-sync from Firestore whenever the app becomes visible
+// again so changes made on other devices show up without a manual refresh.
+let lastVisibilitySync = 0;
+function handleAppVisible() {
+  if (document.visibilityState !== 'visible') return;
+  const now = Date.now();
+  if (now - lastVisibilitySync < 5000) return;
+  lastVisibilitySync = now;
+  syncFromRemote();
+  maybeRefreshTodoist();
+}
+document.addEventListener('visibilitychange', handleAppVisible);
+window.addEventListener('pageshow', handleAppVisible);
 </script>
 <script>
   if ('serviceWorker' in navigator) {
