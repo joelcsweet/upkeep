@@ -49,8 +49,6 @@
 
   @media (max-width: 600px) {
     .app { padding: 28px 16px 90px; }
-    .task-row { flex-wrap: wrap; }
-    .row-actions { flex: 0 0 100%; justify-content: flex-end; margin-top: 8px; }
   }
 
   /* ---------- Header ---------- */
@@ -257,6 +255,7 @@
     color: var(--ink-soft);
     margin-top: 6px;
     line-height: 1.45;
+    max-width: 540px;
   }
 
   .backdate-picker {
@@ -272,8 +271,6 @@
   }
 
   .backdate-input {
-    flex: 1 1 140px;
-    min-width: 0;
     font-family: 'Inter', sans-serif;
     font-size: 14px;
     padding: 8px 10px;
