@@ -313,6 +313,41 @@
     color: var(--ink-soft);
   }
 
+  .search-bar {
+    position: relative;
+    margin-bottom: 14px;
+  }
+  .search-bar input {
+    width: 100%;
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    padding: 10px 36px 10px 13px;
+    border: 1px solid var(--rule-strong);
+    border-radius: 8px;
+    background: var(--paper-raised);
+    color: var(--ink);
+    outline: none;
+    box-sizing: border-box;
+  }
+  .search-bar input:focus {
+    border-color: var(--sage);
+    box-shadow: 0 0 0 3px var(--sage-soft);
+  }
+  .search-clear {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    color: var(--ink-faint);
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 4px 6px;
+  }
+  .search-clear:hover { color: var(--clay-deep); }
+
   .filter-pills {
     display: flex;
     gap: 6px;
@@ -641,15 +676,16 @@ const FREQ_DAYS = {
 };
 const FREQUENCIES = Object.keys(FREQ_DAYS);
 
-let state = { tasks: [], log: [], deletedIds: [], deletedLogKeys: [] };
+let state = { tasks: [], log: [], deletedIds: [], deletedLogKeys: [], scoreHistory: [] };
 let filterMode = 'All'; // All | Clean | Organise
-let activeTab = 'tasks'; // tasks | log
+let activeTab = 'tasks'; // tasks | log | stats | settings
 let showAllSchedule = false;
 let logShowCount = 12;
 let editingId = null;
 let backdatingId = null;
 let addFormOpen = false;
 let nextId = 1;
+let searchQuery = '';
 
 function daysBetween(a, b) {
   const ms = b.setHours(0,0,0,0) - a.setHours(0,0,0,0);
@@ -673,6 +709,15 @@ function toDateStr(d) {
 function parseDate(s) {
   const [y,m,d] = s.split('-').map(Number);
   return new Date(y, m-1, d);
+}
+
+// Local-time timestamp (avoids the UTC-shift bug where toISOString() can land on the wrong day)
+function nowLocalIso() {
+  const d = new Date();
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  const ss = String(d.getSeconds()).padStart(2, '0');
+  return `${toDateStr(d)}T${hh}:${mm}:${ss}`;
 }
 
 function fmtDate(s) {
@@ -701,15 +746,22 @@ function computeMeta(task) {
   return { freqDays, deadline, overdueDays, overdueRatio, override, isClean, isOrganise };
 }
 
+function taskMatchesFilter(meta, filter) {
+  if (filter === 'All') return true;
+  if (filter === 'Clean') return meta.isClean;
+  if (filter === 'Organise') return meta.isOrganise;
+  return true;
+}
+
 // Replicates the LET/FILTER/SORTBY formula in Tasks!I4
 function getSortedActiveTasks() {
   const active = state.tasks.filter(t => t.status === 'Active');
   const withMeta = active.map(t => ({ task: t, meta: computeMeta(t) }));
 
-  const filtered = withMeta.filter(({ meta }) => {
-    if (filterMode === 'All') return true;
-    if (filterMode === 'Clean') return meta.isClean;
-    if (filterMode === 'Organise') return meta.isOrganise;
+  const query = searchQuery.trim().toLowerCase();
+  const filtered = withMeta.filter(({ task, meta }) => {
+    if (!taskMatchesFilter(meta, filterMode)) return false;
+    if (query && !task.name.toLowerCase().includes(query)) return false;
     return true;
   });
 
@@ -732,12 +784,14 @@ function getSortedActiveTasks() {
   return filtered;
 }
 
-function computeHealthScore() {
+function computeHealthScore(filter = filterMode) {
   try {
     const active = state.tasks.filter(t => t.status === 'Active' && t.lastOccurrence);
-    if (!active.length) return null;
-    const scores = active.map(t => {
-      const ratio = Math.min(computeMeta(t).overdueRatio, 2);
+    const withMeta = active.map(t => ({ task: t, meta: computeMeta(t) }));
+    const filtered = withMeta.filter(({ meta }) => taskMatchesFilter(meta, filter));
+    if (!filtered.length) return null;
+    const scores = filtered.map(({ meta }) => {
+      const ratio = Math.min(meta.overdueRatio, 2);
       return ratio <= 0 ? 100 : Math.max(0, 100 - (ratio * 100));
     });
     return Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
@@ -777,6 +831,7 @@ function applyParsed(parsed) {
   state.log = parsed.log || [];
   state.deletedIds = parsed.deletedIds || [];
   state.deletedLogKeys = parsed.deletedLogKeys || [];
+  state.scoreHistory = parsed.scoreHistory || [];
   nextId = Math.max(0, ...state.tasks.map(t => t.id)) + 1;
 }
 
@@ -809,12 +864,33 @@ function mergeStates(local, remote) {
     logMap.set(key, e);
   }
 
+  const scoreHistoryMap = new Map();
+  for (const h of [...(local.scoreHistory || []), ...(remote.scoreHistory || [])]) {
+    const existing = scoreHistoryMap.get(h.date);
+    if (!existing || (h.savedAt && (!existing.savedAt || new Date(h.savedAt) > new Date(existing.savedAt)))) {
+      scoreHistoryMap.set(h.date, h);
+    }
+  }
+
   return {
     tasks: [...taskMap.values()],
     log: [...logMap.values()],
     deletedIds: [...deletedIds],
     deletedLogKeys: [...deletedLogKeys],
+    scoreHistory: [...scoreHistoryMap.values()].sort((a, b) => a.date.localeCompare(b.date)),
   };
+}
+
+function recordScoreSnapshot() {
+  const score = computeHealthScore('All');
+  if (score === null) return;
+  const today = toDateStr(todayDate());
+  state.scoreHistory = state.scoreHistory || [];
+  const idx = state.scoreHistory.findIndex(e => e.date === today);
+  const entry = { date: today, score, savedAt: new Date().toISOString() };
+  if (idx >= 0) state.scoreHistory[idx] = entry;
+  else state.scoreHistory.push(entry);
+  if (state.scoreHistory.length > 365) state.scoreHistory = state.scoreHistory.slice(-365);
 }
 
 async function loadState() {
@@ -839,6 +915,7 @@ async function loadState() {
     const remote = await Promise.race([bridge.load(userId), timeout(8000)]);
     if (remote) {
       applyParsed(mergeStates(state, remote));
+      recordScoreSnapshot();
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
       bridge.save(userId, state).catch(() => {});
       render();
@@ -860,6 +937,7 @@ async function loadState() {
 }
 
 async function saveState() {
+  recordScoreSnapshot();
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   } catch (e) {
@@ -902,7 +980,7 @@ async function completeTask(taskId, completedOn) {
   // mirror VBA: remove log entries for same task logged in last 24h, then add new entry
   const cutoff = Date.now() - 86400000;
   state.log = state.log.filter(e => !(( e.taskId === taskId || e.task === task.name) && new Date(e.loggedAt).getTime() >= cutoff));
-  state.log.push({ loggedAt: new Date().toISOString().slice(0,19), taskId, task: task.name, completedDate: completedStr, prevLastOccurrence: prevLast });
+  state.log.push({ loggedAt: nowLocalIso(), taskId, task: task.name, completedDate: completedStr, prevLastOccurrence: prevLast, backdated: !!completedOn });
 
   const prevUpdatedAt = task.updatedAt;
   task.lastOccurrence = completedStr;
@@ -1020,8 +1098,14 @@ function renderTasksTab() {
 
   const health = computeHealthScore();
   const healthColor = health === null ? 'var(--ink-faint)' : health >= 70 ? '#4a7c59' : health >= 40 ? '#b07d2a' : '#b5563a';
+  const healthLabel = filterMode === 'All' ? 'House health' : `House health · ${filterMode}`;
 
   return `
+    <div class="search-bar">
+      <input type="text" id="task-search" placeholder="Search tasks…" value="${escapeHtml(searchQuery)}" autocomplete="off">
+      ${searchQuery ? `<button class="search-clear" data-action="clear-search" aria-label="Clear search">×</button>` : ''}
+    </div>
+
     <div style="display:flex; justify-content:flex-end; padding: 0 0 4px;">
       <div class="filter-pills">
         ${['All','Clean','Organise'].map(f => `<div class="pill ${filterMode===f?'active':''}" data-action="filter" data-filter="${f}">${f}</div>`).join('')}
@@ -1031,11 +1115,11 @@ function renderTasksTab() {
     <div class="hero">
       <div class="hero-label">
         <span>Do next <span class="count">${doNext.length}</span></span>
-        ${health !== null ? `<span class="health-score" style="color:${healthColor}">House health <span class="health-number" style="color:${healthColor}">${health}</span></span>` : ''}
+        ${health !== null ? `<span class="health-score" style="color:${healthColor}">${healthLabel} <span class="health-number" style="color:${healthColor}">${health}</span></span>` : ''}
       </div>
       <div class="do-list">
         ${doNext.length === 0
-          ? `<div class="do-empty">${hasAnyTasks ? 'Nothing urgent — the house is in good shape.' : 'Add your first task below to get started.'}</div>`
+          ? `<div class="do-empty">${searchQuery ? `No tasks match "${escapeHtml(searchQuery)}".` : hasAnyTasks ? 'Nothing urgent — the house is in good shape.' : 'Add your first task below to get started.'}</div>`
           : doNext.map(item => renderTaskRow(item)).join('')}
       </div>
     </div>
@@ -1046,7 +1130,7 @@ function renderTasksTab() {
       </div>
       <div class="card">
         ${rest.length === 0
-          ? `<div class="empty-state">${hasAnyTasks ? `No more active tasks${filterMode!=='All' ? ` in "${filterMode}"` : ''}.` : 'No tasks yet — add one below.'}</div>`
+          ? `<div class="empty-state">${searchQuery ? `No more matches for "${escapeHtml(searchQuery)}".` : hasAnyTasks ? `No more active tasks${filterMode!=='All' ? ` in "${filterMode}"` : ''}.` : 'No tasks yet — add one below.'}</div>`
           : visibleRest.map(item => renderTaskRow(item)).join('')}
       </div>
       ${rest.length > 8 ? `<div class="show-more"><button data-action="toggle-schedule">${showAllSchedule ? 'Show less' : `Show ${rest.length - 8} more`}</button></div>` : ''}
@@ -1118,12 +1202,61 @@ function renderLogTab() {
             <div class="log-entry">
               <div class="log-date">${fmtDateShort(e.loggedAt.slice(0,10))}</div>
               <div class="log-task">${escapeHtml(displayName)}</div>
-              <div class="log-done-date">${e.completedDate !== e.loggedAt.slice(0,10) ? `for ${fmtDateShort(e.completedDate)}` : ''}</div>
+              <div class="log-done-date">${(e.backdated !== undefined ? e.backdated : e.completedDate !== e.loggedAt.slice(0,10)) ? `for ${fmtDateShort(e.completedDate)}` : ''}</div>
               <button class="log-delete-btn" data-action="delete-log-entry" data-loggedat="${escapeHtml(e.loggedAt)}" data-taskid="${e.taskId ?? ''}" data-task="${escapeHtml(e.task)}" title="Remove this entry">×</button>
             </div>
           `}).join('')}
       </div>
       ${sorted.length > logShowCount ? `<div class="show-more"><button data-action="show-more-log">Show more</button></div>` : ''}
+    </div>
+  `;
+}
+
+function renderScoreChart(history) {
+  if (!history.length) {
+    return `<div class="empty-state">No score history yet — check back after using the app for a few days.</div>`;
+  }
+  const W = 600, H = 200, padL = 32, padR = 12, padT = 16, padB = 26;
+  const innerW = W - padL - padR;
+  const innerH = H - padT - padB;
+  const n = history.length;
+  const xFor = (i) => n === 1 ? padL + innerW / 2 : padL + (innerW * i / (n - 1));
+  const yFor = (score) => padT + innerH - (innerH * score / 100);
+
+  const points = history.map((h, i) => `${xFor(i)},${yFor(h.score)}`).join(' ');
+  const areaPoints = `${padL},${padT + innerH} ${points} ${padL + innerW},${padT + innerH}`;
+
+  const gridLines = [0, 25, 50, 75, 100].map(v => `
+    <line x1="${padL}" y1="${yFor(v)}" x2="${padL + innerW}" y2="${yFor(v)}" stroke="var(--rule)" stroke-width="1" />
+    <text x="${padL - 8}" y="${yFor(v) + 3}" font-size="10" fill="var(--ink-faint)" text-anchor="end">${v}</text>
+  `).join('');
+
+  const labelIdxs = n <= 6 ? history.map((_, i) => i) : [0, Math.floor((n - 1) / 2), n - 1];
+  const xLabels = labelIdxs.map(i => `<text x="${xFor(i)}" y="${H - 8}" font-size="10" fill="var(--ink-faint)" text-anchor="middle">${fmtDateShort(history[i].date)}</text>`).join('');
+
+  const dots = history.map((h, i) => `<circle cx="${xFor(i)}" cy="${yFor(h.score)}" r="3" fill="var(--clay)" />`).join('');
+
+  return `
+    <svg viewBox="0 0 ${W} ${H}" style="width:100%; height:auto; display:block;">
+      ${gridLines}
+      <polygon points="${areaPoints}" fill="var(--clay-soft)" opacity="0.5" />
+      <polyline points="${points}" fill="none" stroke="var(--clay)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
+      ${dots}
+      ${xLabels}
+    </svg>
+  `;
+}
+
+function renderStatsTab() {
+  const history = [...(state.scoreHistory || [])].sort((a, b) => a.date.localeCompare(b.date));
+  const latest = history.length ? history[history.length - 1].score : null;
+  return `
+    <div class="section">
+      <div class="section-head"><div class="section-title">Score over time</div></div>
+      <div class="card" style="padding: 20px;">
+        ${latest !== null ? `<div style="font-size:13px; color:var(--ink-faint); margin-bottom:12px;">Latest: <strong style="color:var(--ink);">${latest}</strong></div>` : ''}
+        ${renderScoreChart(history)}
+      </div>
     </div>
   `;
 }
@@ -1181,6 +1314,10 @@ function render() {
   const app = document.getElementById('app');
   const overdueCount = getSortedActiveTasks().filter(item => item.meta.overdueDays >= 0).length;
 
+  const searchEl = document.getElementById('task-search');
+  const searchWasFocused = document.activeElement === searchEl;
+  const searchSelStart = searchWasFocused ? searchEl.selectionStart : null;
+
   app.innerHTML = `
     <header class="top">
       <div class="wordmark">Upkeep<span class="dot">.</span></div>
@@ -1191,13 +1328,22 @@ function render() {
     <div class="tabs">
       <div class="tab ${activeTab==='tasks'?'active':''}" data-action="tab" data-tab="tasks">Tasks</div>
       <div class="tab ${activeTab==='log'?'active':''}" data-action="tab" data-tab="log">History</div>
+      <div class="tab ${activeTab==='stats'?'active':''}" data-action="tab" data-tab="stats">Stats</div>
       <div class="tab ${activeTab==='settings'?'active':''}" data-action="tab" data-tab="settings">Settings</div>
     </div>
 
-    ${activeTab === 'tasks' ? renderTasksTab() : activeTab === 'log' ? renderLogTab() : renderSettingsTab()}
+    ${activeTab === 'tasks' ? renderTasksTab() : activeTab === 'log' ? renderLogTab() : activeTab === 'stats' ? renderStatsTab() : renderSettingsTab()}
   `;
 
   attachHandlers();
+
+  if (searchWasFocused) {
+    const newSearchEl = document.getElementById('task-search');
+    if (newSearchEl) {
+      newSearchEl.focus();
+      newSearchEl.setSelectionRange(searchSelStart, searchSelStart);
+    }
+  }
 }
 
 function attachHandlers() {
@@ -1237,6 +1383,19 @@ function attachHandlers() {
 
   document.querySelectorAll('[data-action="filter"]').forEach(el => {
     el.addEventListener('click', () => { filterMode = el.dataset.filter; render(); });
+  });
+
+  const searchInput = document.getElementById('task-search');
+  if (searchInput) searchInput.addEventListener('input', () => {
+    searchQuery = searchInput.value;
+    render();
+  });
+
+  const clearSearch = document.querySelector('[data-action="clear-search"]');
+  if (clearSearch) clearSearch.addEventListener('click', () => {
+    searchQuery = '';
+    render();
+    document.getElementById('task-search')?.focus();
   });
 
   document.querySelectorAll('[data-action="tab"]').forEach(el => {
