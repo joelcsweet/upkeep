@@ -576,7 +576,7 @@
 
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
-  import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
+  import { getFirestore, doc, getDoc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
   import {
     getAuth, signInAnonymously, onAuthStateChanged,
     GoogleAuthProvider, signInWithPopup, signOut
@@ -620,6 +620,11 @@
     },
     async save(uid, data) {
       await setDoc(doc(db, 'upkeep', uid), data);
+    },
+    subscribe(uid, callback) {
+      return onSnapshot(doc(db, 'upkeep', uid), (snap) => {
+        if (snap.exists()) callback(snap.data());
+      }, (err) => console.error('Realtime sync error', err));
     },
     async signInWithGoogle() {
       const result = await signInWithPopup(auth, googleProvider);
@@ -933,7 +938,7 @@ async function refreshTodoistStats(showErrors) {
     state.todoistStats = stats.sort((a, b) => a.date.localeCompare(b.date));
     state.todoistStatsFetchedAt = new Date().toISOString();
     await saveState();
-    if (activeTab === 'stats' || activeTab === 'settings') render();
+    render();
   } catch (e) {
     console.error('Todoist sheet fetch failed', e);
     if (showErrors) showToast('Could not fetch Todoist stats — check the sheet link');
@@ -983,28 +988,18 @@ async function loadState() {
   render();
 }
 
-async function syncFromRemote() {
-  if (!userId || !window.firebaseSync) return;
-  try {
-    const timeout = (ms) => new Promise((_, reject) => setTimeout(() => reject(new Error('timed out')), ms));
-    const remote = await Promise.race([window.firebaseSync.load(userId), timeout(8000)]);
-    if (remote) {
-      applyParsed(mergeStates(state, remote));
-      recordScoreSnapshot();
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-      window.firebaseSync.save(userId, state).catch(() => {});
-      render();
-    }
-  } catch (e) {
-    console.error('Background sync failed', e);
-  }
-}
-
-function maybeRefreshTodoist() {
-  const lastFetchDate = state.todoistStatsFetchedAt ? state.todoistStatsFetchedAt.slice(0, 10) : null;
-  if (state.todoistSheetUrl && lastFetchDate !== toDateStr(todayDate())) {
-    refreshTodoistStats(false);
-  }
+// Live push updates from Firestore — replaces polling. Any write from any device
+// (including our own) arrives here within a couple seconds while this tab is open.
+let unsubscribeRemote = null;
+function startRealtimeSync(uid) {
+  if (unsubscribeRemote) { unsubscribeRemote(); unsubscribeRemote = null; }
+  if (!uid || !window.firebaseSync || !window.firebaseSync.subscribe) return;
+  unsubscribeRemote = window.firebaseSync.subscribe(uid, (remote) => {
+    applyParsed(mergeStates(state, remote));
+    recordScoreSnapshot();
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    render();
+  });
 }
 
 async function saveState() {
@@ -1642,6 +1637,7 @@ function attachHandlers() {
       }
       userId = newUid;
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      startRealtimeSync(userId);
       render();
       showToast(remote ? 'Signed in — loaded your synced data' : 'Signed in — this device\'s data is now linked to your account');
     } catch (e) {
@@ -1659,6 +1655,7 @@ function attachHandlers() {
       if (bridge) {
         userId = await bridge.signOutToAnonymous();
         authState = { email: null, isAnonymous: true };
+        startRealtimeSync(userId);
       }
       render();
       showToast('Signed out');
@@ -1703,20 +1700,19 @@ window.addEventListener('firebase-auth-changed', (e) => {
     if (bridge) authState = { email: bridge.currentEmail(), isAnonymous: bridge.isAnonymous() };
   } catch (e) { /* ignore */ }
   render();
-  maybeRefreshTodoist();
+  startRealtimeSync(userId);
+  refreshTodoistStats(false);
 })();
 
-// PWAs commonly stay "open" in the background (tab switch, app switcher, phone lock)
-// without a real reload — re-sync from Firestore whenever the app becomes visible
-// again so changes made on other devices show up without a manual refresh.
+// Todoist has no live push (it's a static sheet, not Firestore) — re-check it every
+// time the app is opened/foregrounded so it doesn't need a manual refresh either.
 let lastVisibilitySync = 0;
 function handleAppVisible() {
   if (document.visibilityState !== 'visible') return;
   const now = Date.now();
   if (now - lastVisibilitySync < 5000) return;
   lastVisibilitySync = now;
-  syncFromRemote();
-  maybeRefreshTodoist();
+  refreshTodoistStats(false);
 }
 document.addEventListener('visibilitychange', handleAppVisible);
 window.addEventListener('pageshow', handleAppVisible);
