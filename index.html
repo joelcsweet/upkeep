@@ -1314,8 +1314,8 @@ function renderStatsTab() {
         ` : ''}
         ${(cleanScore !== null || organiseScore !== null) ? `
           <div style="display:flex; gap:20px; flex-wrap:wrap; margin-bottom:12px;">
-            ${cleanScore !== null ? `<div><div style="font-size:11px; color:var(--ink-faint); text-transform:uppercase; letter-spacing:0.04em;">Clean</div><div style="font-size:18px; font-family:'Source Serif 4', serif; font-weight:600;">${cleanScore}</div></div>` : ''}
-            ${organiseScore !== null ? `<div><div style="font-size:11px; color:var(--ink-faint); text-transform:uppercase; letter-spacing:0.04em;">Organise</div><div style="font-size:18px; font-family:'Source Serif 4', serif; font-weight:600;">${organiseScore}</div></div>` : ''}
+            ${cleanScore !== null ? `<div><div style="font-size:11px; color:var(--ink-faint); text-transform:uppercase; letter-spacing:0.04em;">Clean score</div><div style="font-size:18px; font-family:'Source Serif 4', serif; font-weight:600;">${cleanScore}</div></div>` : ''}
+            ${organiseScore !== null ? `<div><div style="font-size:11px; color:var(--ink-faint); text-transform:uppercase; letter-spacing:0.04em;">Organise score</div><div style="font-size:18px; font-family:'Source Serif 4', serif; font-weight:600;">${organiseScore}</div></div>` : ''}
           </div>
         ` : ''}
         ${avgLateness !== null ? `
