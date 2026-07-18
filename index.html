@@ -660,6 +660,41 @@ let editingId = null;
 let backdatingId = null;
 let addFormOpen = false;
 let nextId = 1;
+let statsUpkeepMetric = 'score';
+let statsTodoistMetric = 'avgTaskAgeDays';
+
+const UPKEEP_METRICS = {
+  score:         { label: 'House Health Score', unit: '', fixedDomain: [0, 100] },
+  cleanScore:    { label: 'Clean score',         unit: '', fixedDomain: [0, 100] },
+  organiseScore: { label: 'Organise score',      unit: '', fixedDomain: [0, 100] },
+  avgLateness:   { label: 'Avg days late',       unit: 'd', step: 5, allowNegative: true },
+};
+const TODOIST_METRICS = {
+  avgTaskAgeDays:      { label: 'Average Task Age',     unit: 'd', step: 10 },
+  activeTasks:         { label: 'Active tasks',         unit: '', step: 10 },
+  completedLast7Days:  { label: 'Completed (7d)',       unit: '', step: 5 },
+  avgDaysToComplete:   { label: 'Avg days to complete', unit: '', step: 10 },
+};
+
+function niceDomain(values, { allowNegative = false, step = 10 } = {}) {
+  if (!values.length) return { yMin: 0, yMax: step };
+  const max = Math.max(...values, 0);
+  const min = allowNegative ? Math.min(...values, 0) : 0;
+  let yMax = Math.max(step, Math.ceil(max / step) * step);
+  let yMin = allowNegative ? Math.floor(min / step) * step : 0;
+  if (yMax <= yMin) yMax = yMin + step;
+  return { yMin, yMax };
+}
+
+function metricTile(card, key, label, value, selectedKey, accentSoft, big) {
+  const isActive = key === selectedKey;
+  const bg = isActive ? `background:${accentSoft}; border-radius:8px;` : '';
+  const valueSize = big ? '32px' : '18px';
+  return `<div data-action="select-metric" data-card="${card}" data-metric="${key}" style="cursor:pointer; padding:6px 10px; margin:-6px -10px; ${bg}">
+    <div style="font-size:11px; color:var(--ink-faint); text-transform:uppercase; letter-spacing:0.04em;">${label}</div>
+    <div style="font-size:${valueSize}; font-family:'Source Serif 4', serif; font-weight:600; color:var(--ink); line-height:1.2;">${value}</div>
+  </div>`;
+}
 
 function daysBetween(a, b) {
   const ms = b.setHours(0,0,0,0) - a.setHours(0,0,0,0);
@@ -891,10 +926,13 @@ function mergeStates(local, remote) {
 function recordScoreSnapshot() {
   const score = computeHealthScore('All');
   if (score === null) return;
+  const cleanScore = computeHealthScore('Clean');
+  const organiseScore = computeHealthScore('Organise');
+  const avgLateness = computeAvgLateness();
   const today = toDateStr(todayDate());
   state.scoreHistory = state.scoreHistory || [];
   const idx = state.scoreHistory.findIndex(e => e.date === today);
-  const entry = { date: today, score, savedAt: new Date().toISOString() };
+  const entry = { date: today, score, cleanScore, organiseScore, avgLateness, savedAt: new Date().toISOString() };
   if (idx >= 0) state.scoreHistory[idx] = entry;
   else state.scoreHistory.push(entry);
   if (state.scoreHistory.length > 365) state.scoreHistory = state.scoreHistory.slice(-365);
@@ -1320,32 +1358,30 @@ function renderStatsTab() {
   const cleanScore = computeHealthScore('Clean');
   const organiseScore = computeHealthScore('Organise');
 
+  const upkeepCfg = UPKEEP_METRICS[statsUpkeepMetric] || UPKEEP_METRICS.score;
+  const upkeepChartHistory = history.filter(h => h[statsUpkeepMetric] != null);
+  const upkeepDomain = upkeepCfg.fixedDomain
+    ? { yMin: upkeepCfg.fixedDomain[0], yMax: upkeepCfg.fixedDomain[1] }
+    : niceDomain(upkeepChartHistory.map(h => h[statsUpkeepMetric]), upkeepCfg);
+
   const todoist = [...(state.todoistStats || [])].sort((a, b) => a.date.localeCompare(b.date));
   const latestTodoist = todoist.length ? todoist[todoist.length - 1] : null;
-  const ageMax = todoist.length ? Math.max(10, Math.ceil(Math.max(...todoist.map(t => t.avgTaskAgeDays)) / 10) * 10) : 10;
+  const todoistCfg = TODOIST_METRICS[statsTodoistMetric] || TODOIST_METRICS.avgTaskAgeDays;
+  const todoistDomain = niceDomain(todoist.map(h => h[statsTodoistMetric]), todoistCfg);
 
   return `
     <div class="section">
       <div class="section-head"><div class="section-title">Upkeep</div></div>
       <div class="card" style="padding: 20px;">
-        ${latest !== null ? `
-          <div style="margin-bottom:4px;">
-            <div style="font-size:11px; color:var(--ink-faint); text-transform:uppercase; letter-spacing:0.04em;">House Health Score</div>
-            <div style="font-size:32px; font-family:'Source Serif 4', serif; font-weight:600; color:var(--ink); line-height:1.2;">${latest}</div>
+        ${latest !== null ? metricTile('upkeep', 'score', 'House Health Score', latest, statsUpkeepMetric, 'var(--clay-soft)', true) : ''}
+        ${(cleanScore !== null || organiseScore !== null || avgLateness !== null) ? `
+          <div style="display:flex; gap:8px; flex-wrap:wrap; margin: 8px 0 12px;">
+            ${cleanScore !== null ? metricTile('upkeep', 'cleanScore', 'Clean score', cleanScore, statsUpkeepMetric, 'var(--clay-soft)', false) : ''}
+            ${organiseScore !== null ? metricTile('upkeep', 'organiseScore', 'Organise score', organiseScore, statsUpkeepMetric, 'var(--clay-soft)', false) : ''}
+            ${avgLateness !== null ? metricTile('upkeep', 'avgLateness', 'Avg days late', avgLateness.toFixed(1) + 'd', statsUpkeepMetric, 'var(--clay-soft)', false) : ''}
           </div>
         ` : ''}
-        ${(cleanScore !== null || organiseScore !== null) ? `
-          <div style="display:flex; gap:20px; flex-wrap:wrap; margin-bottom:12px;">
-            ${cleanScore !== null ? `<div><div style="font-size:11px; color:var(--ink-faint); text-transform:uppercase; letter-spacing:0.04em;">Clean score</div><div style="font-size:18px; font-family:'Source Serif 4', serif; font-weight:600;">${cleanScore}</div></div>` : ''}
-            ${organiseScore !== null ? `<div><div style="font-size:11px; color:var(--ink-faint); text-transform:uppercase; letter-spacing:0.04em;">Organise score</div><div style="font-size:18px; font-family:'Source Serif 4', serif; font-weight:600;">${organiseScore}</div></div>` : ''}
-          </div>
-        ` : ''}
-        ${avgLateness !== null ? `
-          <div style="display:flex; gap:20px; flex-wrap:wrap; margin-bottom:12px;">
-            <div><div style="font-size:11px; color:var(--ink-faint); text-transform:uppercase; letter-spacing:0.04em;">Avg days late</div><div style="font-size:18px; font-family:'Source Serif 4', serif; font-weight:600;">${avgLateness.toFixed(1)}d</div></div>
-          </div>
-        ` : ''}
-        ${renderLineChart(history, { getValue: h => h.score, yMin: 0, yMax: 100, color: 'var(--clay)', areaColor: 'var(--clay-soft)', emptyMessage: 'No score history yet — check back after using the app for a few days.' })}
+        ${renderLineChart(upkeepChartHistory, { getValue: h => h[statsUpkeepMetric], yMin: upkeepDomain.yMin, yMax: upkeepDomain.yMax, color: 'var(--clay)', areaColor: 'var(--clay-soft)', emptyMessage: 'No history yet for this metric — check back after using the app for a few days.' })}
       </div>
     </div>
 
@@ -1354,17 +1390,14 @@ function renderStatsTab() {
       <div class="section-head"><div class="section-title">ToDoist</div></div>
       <div class="card" style="padding: 20px;">
         ${latestTodoist ? `
-          <div style="margin-bottom:12px;">
-            <div style="font-size:11px; color:var(--ink-faint); text-transform:uppercase; letter-spacing:0.04em;">Average Task Age</div>
-            <div style="font-size:32px; font-family:'Source Serif 4', serif; font-weight:600; color:var(--ink); line-height:1.2;">${latestTodoist.avgTaskAgeDays.toFixed(1)}<span style="font-size:16px; font-weight:500;">d</span></div>
-          </div>
-          <div style="display:flex; gap:20px; flex-wrap:wrap; margin-bottom:16px;">
-            <div><div style="font-size:11px; color:var(--ink-faint); text-transform:uppercase; letter-spacing:0.04em;">Active tasks</div><div style="font-size:18px; font-family:'Source Serif 4', serif; font-weight:600;">${latestTodoist.activeTasks}</div></div>
-            <div><div style="font-size:11px; color:var(--ink-faint); text-transform:uppercase; letter-spacing:0.04em;">Completed (7d)</div><div style="font-size:18px; font-family:'Source Serif 4', serif; font-weight:600;">${latestTodoist.completedLast7Days}</div></div>
-            <div><div style="font-size:11px; color:var(--ink-faint); text-transform:uppercase; letter-spacing:0.04em;">Avg days to complete</div><div style="font-size:18px; font-family:'Source Serif 4', serif; font-weight:600;">${latestTodoist.avgDaysToComplete.toFixed(1)}</div></div>
+          ${metricTile('todoist', 'avgTaskAgeDays', 'Average Task Age', latestTodoist.avgTaskAgeDays.toFixed(1) + 'd', statsTodoistMetric, 'var(--sage-soft)', true)}
+          <div style="display:flex; gap:8px; flex-wrap:wrap; margin: 8px 0 16px;">
+            ${metricTile('todoist', 'activeTasks', 'Active tasks', latestTodoist.activeTasks, statsTodoistMetric, 'var(--sage-soft)', false)}
+            ${metricTile('todoist', 'completedLast7Days', 'Completed (7d)', latestTodoist.completedLast7Days, statsTodoistMetric, 'var(--sage-soft)', false)}
+            ${metricTile('todoist', 'avgDaysToComplete', 'Avg days to complete', latestTodoist.avgDaysToComplete.toFixed(1), statsTodoistMetric, 'var(--sage-soft)', false)}
           </div>
         ` : ''}
-        ${renderLineChart(todoist, { getValue: h => h.avgTaskAgeDays, yMin: 0, yMax: ageMax, color: 'var(--sage)', areaColor: 'var(--sage-soft)', emptyMessage: 'No Todoist data yet.' })}
+        ${renderLineChart(todoist, { getValue: h => h[statsTodoistMetric], yMin: todoistDomain.yMin, yMax: todoistDomain.yMax, color: 'var(--sage)', areaColor: 'var(--sage-soft)', emptyMessage: 'No Todoist data yet.' })}
       </div>
     </div>
     ` : ''}
@@ -1499,6 +1532,14 @@ function attachHandlers() {
 
   document.querySelectorAll('[data-action="filter"]').forEach(el => {
     el.addEventListener('click', () => { filterMode = el.dataset.filter; render(); });
+  });
+
+  document.querySelectorAll('[data-action="select-metric"]').forEach(el => {
+    el.addEventListener('click', () => {
+      if (el.dataset.card === 'upkeep') statsUpkeepMetric = el.dataset.metric;
+      else statsTodoistMetric = el.dataset.metric;
+      render();
+    });
   });
 
   document.querySelectorAll('[data-action="tab"]').forEach(el => {
