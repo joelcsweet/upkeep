@@ -801,6 +801,7 @@ function getScheduleRest() {
 
 let userId = null;
 let authState = { email: null, isAnonymous: true };
+let authResolved = false;
 
 function waitForFirebaseSync(timeoutMs) {
   return new Promise((resolve) => {
@@ -1375,7 +1376,9 @@ function renderSettingsTab() {
     <div class="section">
       <div class="section-head"><div class="section-title">Account</div></div>
       <div class="card" style="padding: 18px 20px;">
-        ${authState.email
+        ${!authResolved
+          ? `<p style="font-size: 13.5px; color: var(--ink-faint); line-height: 1.5; margin: 0;">Checking sign-in status…</p>`
+          : authState.email
           ? `<p style="font-size: 13.5px; color: var(--ink-soft); line-height: 1.5; margin: 0 0 14px;">
                Signed in as <strong style="color: var(--ink);">${escapeHtml(authState.email)}</strong>. This account's data syncs across any device you sign into.
              </p>
@@ -1659,6 +1662,7 @@ function attachHandlers() {
       if (bridge) {
         userId = await bridge.signOutToAnonymous();
         authState = { email: null, isAnonymous: true };
+        authResolved = true;
         startRealtimeSync(userId);
       }
       render();
@@ -1694,6 +1698,7 @@ function attachHandlers() {
 
 window.addEventListener('firebase-auth-changed', (e) => {
   authState = { email: e.detail.email, isAnonymous: e.detail.isAnonymous };
+  authResolved = true;
   if (activeTab === 'settings') render();
 });
 
@@ -1701,7 +1706,7 @@ window.addEventListener('firebase-auth-changed', (e) => {
   await loadState();
   try {
     const bridge = await waitForFirebaseSync(2000);
-    if (bridge) authState = { email: bridge.currentEmail(), isAnonymous: bridge.isAnonymous() };
+    if (bridge) { authState = { email: bridge.currentEmail(), isAnonymous: bridge.isAnonymous() }; authResolved = true; }
   } catch (e) { /* ignore */ }
   render();
   startRealtimeSync(userId);
