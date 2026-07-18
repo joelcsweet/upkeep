@@ -652,7 +652,8 @@ const FREQUENCIES = Object.keys(FREQ_DAYS);
 
 let state = { tasks: [], log: [], deletedIds: [], deletedLogKeys: [], scoreHistory: [], todoistSheetUrl: '', todoistStats: [], todoistStatsFetchedAt: null };
 let filterMode = 'All'; // All | Clean | Organise
-let activeTab = 'tasks'; // tasks | log | stats | settings
+const ACTIVE_TAB_KEY = 'upkeep:activeTab';
+let activeTab = localStorage.getItem(ACTIVE_TAB_KEY) || 'tasks'; // tasks | log | stats | settings
 let showAllSchedule = false;
 let logShowCount = 12;
 let editingId = null;
@@ -1415,7 +1416,6 @@ function renderSettingsTab() {
         </div>
         <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
           <button class="btn btn-primary" style="align-self:flex-start;" data-action="save-todoist-url">Save</button>
-          ${state.todoistStatsFetchedAt ? `<span style="font-size:12px; color:var(--ink-faint);">Last fetched ${fmtDateShort(state.todoistStatsFetchedAt.slice(0,10))}</span>` : ''}
         </div>
       </div>
     </div>
@@ -1499,7 +1499,11 @@ function attachHandlers() {
   });
 
   document.querySelectorAll('[data-action="tab"]').forEach(el => {
-    el.addEventListener('click', () => { activeTab = el.dataset.tab; render(); });
+    el.addEventListener('click', () => {
+      activeTab = el.dataset.tab;
+      try { localStorage.setItem(ACTIVE_TAB_KEY, activeTab); } catch (e) { /* ignore */ }
+      render();
+    });
   });
 
   const toggleSched = document.querySelector('[data-action="toggle-schedule"]');
