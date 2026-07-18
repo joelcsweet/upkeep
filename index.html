@@ -688,10 +688,11 @@ function niceDomain(values, { allowNegative = false, step = 10 } = {}) {
 
 function metricTile(card, key, label, value, selectedKey, accentSoft, big) {
   const isActive = key === selectedKey;
-  const bg = isActive ? `background:${accentSoft}; border-radius:8px;` : '';
   const valueSize = big ? '32px' : '18px';
-  return `<div data-action="select-metric" data-card="${card}" data-metric="${key}" style="cursor:pointer; padding:6px 10px; margin:-6px -10px; ${bg}">
-    <div style="font-size:11px; color:var(--ink-faint); text-transform:uppercase; letter-spacing:0.04em;">${label}</div>
+  const labelWeight = isActive ? '700' : '600';
+  const labelColor = isActive ? 'var(--ink)' : 'var(--ink-faint)';
+  return `<div data-action="select-metric" data-card="${card}" data-metric="${key}" style="cursor:pointer; padding:6px 10px; margin:-6px -10px;">
+    <div style="font-size:11px; color:${labelColor}; font-weight:${labelWeight}; text-transform:uppercase; letter-spacing:0.04em;">${label}</div>
     <div style="font-size:${valueSize}; font-family:'Source Serif 4', serif; font-weight:600; color:var(--ink); line-height:1.2;">${value}</div>
   </div>`;
 }
