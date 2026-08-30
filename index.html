@@ -1327,10 +1327,13 @@ function renderLineChart(history, { getValue, yMin, yMax, color, areaColor, empt
   if (!history.length) {
     return `<div class="empty-state">${emptyMessage}</div>`;
   }
-  const W = 600, H = 200, padL = 36, padR = 12, padT = 16, padB = 26;
-  const innerW = W - padL - padR;
-  const innerH = H - padT - padB;
+  const H = 200, padL = 36, padR = 12, padT = 16, padB = 26;
+  const pointSpacing = 40;
   const n = history.length;
+  const minInnerW = 600 - padL - padR;
+  const innerW = Math.max(minInnerW, (n - 1) * pointSpacing);
+  const W = innerW + padL + padR;
+  const innerH = H - padT - padB;
   const xFor = (i) => n === 1 ? padL + innerW / 2 : padL + (innerW * i / (n - 1));
   const yFor = (v) => padT + innerH - (innerH * (v - yMin) / (yMax - yMin));
 
@@ -1350,13 +1353,15 @@ function renderLineChart(history, { getValue, yMin, yMax, color, areaColor, empt
   const dots = values.map((v, i) => `<circle cx="${xFor(i)}" cy="${yFor(v)}" r="3" fill="${color}" />`).join('');
 
   return `
-    <svg viewBox="0 0 ${W} ${H}" style="width:100%; height:auto; display:block;">
-      ${gridLines}
-      <polygon points="${areaPoints}" fill="${areaColor}" opacity="0.5" />
-      <polyline points="${points}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
-      ${dots}
-      ${xLabels}
-    </svg>
+    <div style="overflow-x:auto; -webkit-overflow-scrolling:touch;">
+      <svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" style="display:block; max-width:none;">
+        ${gridLines}
+        <polygon points="${areaPoints}" fill="${areaColor}" opacity="0.5" />
+        <polyline points="${points}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
+        ${dots}
+        ${xLabels}
+      </svg>
+    </div>
   `;
 }
 
