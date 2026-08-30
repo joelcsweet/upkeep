@@ -686,6 +686,15 @@ function niceDomain(values, { allowNegative = false, step = 10 } = {}) {
   return { yMin, yMax };
 }
 
+// Thin out daily history to one point every `interval` days, always keeping the most recent point
+function downsampleEvery(history, interval) {
+  if (history.length <= 1) return history;
+  const sampled = history.filter((_, i) => i % interval === 0);
+  const last = history[history.length - 1];
+  if (sampled[sampled.length - 1] !== last) sampled.push(last);
+  return sampled;
+}
+
 function metricTile(card, key, label, value, selectedKey, accentSoft, big) {
   const isActive = key === selectedKey;
   const valueSize = big ? '32px' : '18px';
@@ -1382,7 +1391,7 @@ function renderStatsTab() {
             ${avgLateness !== null ? metricTile('upkeep', 'avgLateness', 'Avg days late', avgLateness.toFixed(1) + 'd', statsUpkeepMetric, 'var(--clay-soft)', false) : ''}
           </div>
         ` : ''}
-        ${renderLineChart(upkeepChartHistory, { getValue: h => h[statsUpkeepMetric], yMin: upkeepDomain.yMin, yMax: upkeepDomain.yMax, color: 'var(--clay)', areaColor: 'var(--clay-soft)', emptyMessage: 'No history yet for this metric — check back after using the app for a few days.' })}
+        ${renderLineChart(downsampleEvery(upkeepChartHistory, 3), { getValue: h => h[statsUpkeepMetric], yMin: upkeepDomain.yMin, yMax: upkeepDomain.yMax, color: 'var(--clay)', areaColor: 'var(--clay-soft)', emptyMessage: 'No history yet for this metric — check back after using the app for a few days.' })}
       </div>
     </div>
 
@@ -1398,7 +1407,7 @@ function renderStatsTab() {
             ${metricTile('todoist', 'avgDaysToComplete', 'Avg days to complete', latestTodoist.avgDaysToComplete.toFixed(1), statsTodoistMetric, 'var(--sage-soft)', false)}
           </div>
         ` : ''}
-        ${renderLineChart(todoist, { getValue: h => h[statsTodoistMetric], yMin: todoistDomain.yMin, yMax: todoistDomain.yMax, color: 'var(--sage)', areaColor: 'var(--sage-soft)', emptyMessage: 'No Todoist data yet.' })}
+        ${renderLineChart(downsampleEvery(todoist, 3), { getValue: h => h[statsTodoistMetric], yMin: todoistDomain.yMin, yMax: todoistDomain.yMax, color: 'var(--sage)', areaColor: 'var(--sage-soft)', emptyMessage: 'No Todoist data yet.' })}
       </div>
     </div>
     ` : ''}
