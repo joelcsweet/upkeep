@@ -1336,7 +1336,7 @@ function renderLineChart(history, { getValue, yMin, yMax, color, areaColor, empt
     return `<div class="empty-state">${emptyMessage}</div>`;
   }
   const H = 200, padL = 36, padR = 12, padT = 16, padB = 26;
-  const pointSpacing = 45;
+  const pointSpacing = 26;
   const n = history.length;
   const innerW = Math.max(600 - padL - padR, (n - 1) * pointSpacing);
   const W = innerW + padL + padR;
