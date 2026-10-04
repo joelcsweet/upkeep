@@ -1354,7 +1354,7 @@ function renderLineChart(history, { getValue, yMin, yMax, color, areaColor, empt
     <text x="${padL - 8}" y="${yFor(v) + 3}" font-size="10" fill="var(--ink-faint)" text-anchor="end">${Math.round(v)}</text>
   `).join('');
 
-  const labelIdxs = history.map((_, i) => i).filter(i => i % 3 === 0 || i === n - 1);
+  const labelIdxs = history.map((_, i) => i).filter(i => i === n - 1 || (i % 3 === 0 && n - 1 - i >= 3));
   const xLabels = labelIdxs.map(i => `<text x="${xFor(i)}" y="${H - 8}" font-size="10" fill="var(--ink-faint)" text-anchor="middle">${fmtDateShort(history[i].date)}</text>`).join('');
 
   const dots = values.map((v, i) => `<circle cx="${xFor(i)}" cy="${yFor(v)}" r="3" fill="${color}" />`).join('');
