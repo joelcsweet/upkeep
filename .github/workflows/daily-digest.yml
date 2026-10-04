@@ -1,0 +1,30 @@
+name: Daily Upkeep digest
+
+on:
+  schedule:
+    # 7am Adelaide is 20:30 UTC during daylight saving and 21:30 UTC otherwise.
+    # Both run; the script only sends when it's actually 7am local.
+    - cron: '30 20 * * *'
+    - cron: '30 21 * * *'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Send now regardless of the time (for testing)'
+        type: boolean
+        default: false
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install --no-save firebase-admin@12
+      - run: node scripts/daily-digest.mjs
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          UPKEEP_UID: ${{ secrets.UPKEEP_UID }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          FORCE_SEND: ${{ inputs.force }}
