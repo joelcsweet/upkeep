@@ -313,6 +313,13 @@
     color: var(--ink-soft);
   }
 
+  .chart-scroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .chart-scroll::-webkit-scrollbar { display: none; }
+
   .filter-pills {
     display: flex;
     gap: 6px;
@@ -695,14 +702,6 @@ function downsampleEvery(history, interval) {
   return sampled;
 }
 
-// Keeps the chart at a fixed size with comfortable, constant spacing between points
-// by showing only the most recent window — older points age out rather than
-// squeezing everything in or growing the chart wider.
-function capToRecentWindow(history, spacing = 45) {
-  const chartInnerW = 600 - 36 - 12; // matches W/padL/padR in renderLineChart
-  const maxPoints = Math.max(2, Math.floor(chartInnerW / spacing) + 1);
-  return history.length > maxPoints ? history.slice(-maxPoints) : history;
-}
 
 function metricTile(card, key, label, value, selectedKey, accentSoft, big) {
   const isActive = key === selectedKey;
@@ -1336,10 +1335,12 @@ function renderLineChart(history, { getValue, yMin, yMax, color, areaColor, empt
   if (!history.length) {
     return `<div class="empty-state">${emptyMessage}</div>`;
   }
-  const W = 600, H = 200, padL = 36, padR = 12, padT = 16, padB = 26;
-  const innerW = W - padL - padR;
-  const innerH = H - padT - padB;
+  const H = 200, padL = 36, padR = 12, padT = 16, padB = 26;
+  const pointSpacing = 45;
   const n = history.length;
+  const innerW = Math.max(600 - padL - padR, (n - 1) * pointSpacing);
+  const W = innerW + padL + padR;
+  const innerH = H - padT - padB;
   const xFor = (i) => n === 1 ? padL + innerW / 2 : padL + (innerW * i / (n - 1));
   const yFor = (v) => padT + innerH - (innerH * (v - yMin) / (yMax - yMin));
 
@@ -1353,19 +1354,21 @@ function renderLineChart(history, { getValue, yMin, yMax, color, areaColor, empt
     <text x="${padL - 8}" y="${yFor(v) + 3}" font-size="10" fill="var(--ink-faint)" text-anchor="end">${Math.round(v)}</text>
   `).join('');
 
-  const labelIdxs = n <= 6 ? history.map((_, i) => i) : [0, Math.floor((n - 1) / 2), n - 1];
+  const labelIdxs = history.map((_, i) => i).filter(i => i % 3 === 0 || i === n - 1);
   const xLabels = labelIdxs.map(i => `<text x="${xFor(i)}" y="${H - 8}" font-size="10" fill="var(--ink-faint)" text-anchor="middle">${fmtDateShort(history[i].date)}</text>`).join('');
 
   const dots = values.map((v, i) => `<circle cx="${xFor(i)}" cy="${yFor(v)}" r="3" fill="${color}" />`).join('');
 
   return `
-    <svg viewBox="0 0 ${W} ${H}" style="width:100%; height:auto; display:block;">
-      ${gridLines}
-      <polygon points="${areaPoints}" fill="${areaColor}" opacity="0.5" />
-      <polyline points="${points}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
-      ${dots}
-      ${xLabels}
-    </svg>
+    <div class="chart-scroll">
+      <svg viewBox="0 0 ${W} ${H}" style="width:${W}px; min-width:100%; height:auto; display:block;">
+        ${gridLines}
+        <polygon points="${areaPoints}" fill="${areaColor}" opacity="0.5" />
+        <polyline points="${points}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
+        ${dots}
+        ${xLabels}
+      </svg>
+    </div>
   `;
 }
 
@@ -1400,7 +1403,7 @@ function renderStatsTab() {
             ${avgLateness !== null ? metricTile('upkeep', 'avgLateness', 'Avg days late', avgLateness.toFixed(1) + 'd', statsUpkeepMetric, 'var(--clay-soft)', false) : ''}
           </div>
         ` : ''}
-        ${renderLineChart(capToRecentWindow(downsampleEvery(upkeepChartHistory, 3)), { getValue: h => h[statsUpkeepMetric], yMin: upkeepDomain.yMin, yMax: upkeepDomain.yMax, color: 'var(--clay)', areaColor: 'var(--clay-soft)', emptyMessage: 'No history yet for this metric — check back after using the app for a few days.' })}
+        ${renderLineChart(downsampleEvery(upkeepChartHistory, 3), { getValue: h => h[statsUpkeepMetric], yMin: upkeepDomain.yMin, yMax: upkeepDomain.yMax, color: 'var(--clay)', areaColor: 'var(--clay-soft)', emptyMessage: 'No history yet for this metric — check back after using the app for a few days.' })}
       </div>
     </div>
 
@@ -1416,7 +1419,7 @@ function renderStatsTab() {
             ${metricTile('todoist', 'avgDaysToComplete', 'Avg days to complete', latestTodoist.avgDaysToComplete.toFixed(1), statsTodoistMetric, 'var(--sage-soft)', false)}
           </div>
         ` : ''}
-        ${renderLineChart(capToRecentWindow(downsampleEvery(todoist, 3)), { getValue: h => h[statsTodoistMetric], yMin: todoistDomain.yMin, yMax: todoistDomain.yMax, color: 'var(--sage)', areaColor: 'var(--sage-soft)', emptyMessage: 'No Todoist data yet.' })}
+        ${renderLineChart(downsampleEvery(todoist, 3), { getValue: h => h[statsTodoistMetric], yMin: todoistDomain.yMin, yMax: todoistDomain.yMax, color: 'var(--sage)', areaColor: 'var(--sage-soft)', emptyMessage: 'No Todoist data yet.' })}
       </div>
     </div>
     ` : ''}
@@ -1492,6 +1495,10 @@ function renderSettingsTab() {
 
 function render() {
   const app = document.getElementById('app');
+  const prevScroll = [...document.querySelectorAll('.chart-scroll')].map(el => ({
+    left: el.scrollLeft,
+    atEnd: el.scrollLeft + el.clientWidth >= el.scrollWidth - 4
+  }));
   const overdueCount = getSortedActiveTasks().filter(item => item.meta.overdueDays >= 0).length;
 
   app.innerHTML = `
@@ -1512,6 +1519,12 @@ function render() {
   `;
 
   attachHandlers();
+
+  // Charts open scrolled to the most recent data; keep position across re-renders
+  document.querySelectorAll('.chart-scroll').forEach((el, i) => {
+    const prev = prevScroll[i];
+    el.scrollLeft = (!prev || prev.atEnd) ? el.scrollWidth : prev.left;
+  });
 }
 
 function attachHandlers() {
