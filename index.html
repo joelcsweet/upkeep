@@ -1336,7 +1336,7 @@ function renderLineChart(history, { getValue, yMin, yMax, color, areaColor, empt
     return `<div class="empty-state">${emptyMessage}</div>`;
   }
   const H = 200, padL = 36, padR = 12, padT = 16, padB = 26;
-  const pointSpacing = 26;
+  const pointSpacing = 19; // ~ the old fit-to-width density at ~30 points
   const n = history.length;
   const innerW = Math.max(600 - padL - padR, (n - 1) * pointSpacing);
   const W = innerW + padL + padR;
@@ -1361,7 +1361,7 @@ function renderLineChart(history, { getValue, yMin, yMax, color, areaColor, empt
 
   return `
     <div class="chart-scroll">
-      <svg viewBox="0 0 ${W} ${H}" style="width:${W}px; min-width:100%; height:auto; display:block;">
+      <svg viewBox="0 0 ${W} ${H}" style="width:${(W / 600 * 100).toFixed(2)}%; height:auto; display:block;">
         ${gridLines}
         <polygon points="${areaPoints}" fill="${areaColor}" opacity="0.5" />
         <polyline points="${points}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
