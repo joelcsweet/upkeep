@@ -15,10 +15,11 @@ for (const [k, v] of Object.entries({ FIREBASE_SERVICE_ACCOUNT, UPKEEP_UID, NTFY
   if (!v) { console.error(`Missing required secret: ${k}`); process.exit(1); }
 }
 
-// Cron runs at two UTC times to cover daylight saving; only send when it is 7am local.
+// GitHub starts scheduled runs late (often hours), so accept any run from 7am up to 11am local.
+// Duplicates are impossible: the "already notified" record below stops repeat alerts.
 const localHour = Number(new Intl.DateTimeFormat('en-GB', { timeZone: TZ, hour: '2-digit', hour12: false }).format(new Date()));
-if (localHour !== SEND_HOUR && !force) {
-  console.log(`Local hour is ${localHour}, not ${SEND_HOUR} - skipping.`);
+if ((localHour < SEND_HOUR || localHour > 11) && !force) {
+  console.log(`Local hour is ${localHour}, outside ${SEND_HOUR}-11 - skipping.`);
   process.exit(0);
 }
 
