@@ -3,7 +3,6 @@
 import admin from 'firebase-admin';
 
 const TZ = 'Australia/Adelaide';
-const SEND_HOUR = 7;
 const FREQ_DAYS = {
   Weekly: 7, Fortnightly: 14, Monthly: 30, 'Bi-monthly': 60,
   Quarterly: 90, 'Bi-annually': 182, Annually: 365,
@@ -13,14 +12,6 @@ const { FIREBASE_SERVICE_ACCOUNT, UPKEEP_UID, NTFY_TOPIC, FORCE_SEND } = process
 const force = FORCE_SEND === 'true';
 for (const [k, v] of Object.entries({ FIREBASE_SERVICE_ACCOUNT, UPKEEP_UID, NTFY_TOPIC })) {
   if (!v) { console.error(`Missing required secret: ${k}`); process.exit(1); }
-}
-
-// GitHub starts scheduled runs late (often hours), so accept any run from 7am up to 11am local.
-// Duplicates are impossible: the "already notified" record below stops repeat alerts.
-const localHour = Number(new Intl.DateTimeFormat('en-GB', { timeZone: TZ, hour: '2-digit', hour12: false }).format(new Date()));
-if ((localHour < SEND_HOUR || localHour > 11) && !force) {
-  console.log(`Local hour is ${localHour}, outside ${SEND_HOUR}-11 - skipping.`);
-  process.exit(0);
 }
 
 const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: TZ }); // YYYY-MM-DD

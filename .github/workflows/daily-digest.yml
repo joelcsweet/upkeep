@@ -2,8 +2,8 @@ name: Daily Upkeep digest
 
 on:
   schedule:
-    # 7am Adelaide is 20:30 UTC during daylight saving and 21:30 UTC otherwise.
-    # All run; GitHub starts them late, so the script accepts any run between 7am and 11am local and de-duplicates.
+    # Runs a few times a day (GitHub's timing is approximate); the script de-duplicates
+    # so each newly due task only ever notifies once.
     - cron: '30 20 * * *'
     - cron: '30 21 * * *'
     - cron: '0 22 * * *'
