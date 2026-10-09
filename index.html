@@ -585,7 +585,7 @@
   import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
   import { getFirestore, doc, getDoc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
   import {
-    getAuth, signInAnonymously, onAuthStateChanged,
+    getAuth, onAuthStateChanged,
     GoogleAuthProvider, signInWithPopup, signOut
   } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js";
 
@@ -603,23 +603,16 @@
   const auth = getAuth(app);
   const googleProvider = new GoogleAuthProvider();
 
-  let resolveReady;
-  const readyPromise = new Promise((resolve) => { resolveReady = resolve; });
-
+  // Sign-in is required: anonymous sessions (from older versions) are signed out, and
+  // nothing is ever signed in anonymously any more.
   onAuthStateChanged(auth, (user) => {
-    if (user) {
-      resolveReady(user.uid);
-      window.dispatchEvent(new CustomEvent('firebase-auth-changed', {
-        detail: { uid: user.uid, isAnonymous: user.isAnonymous, email: user.email || null }
-      }));
-    } else {
-      signInAnonymously(auth).catch((e) => console.error('Anonymous sign-in failed', e));
-    }
+    if (user && user.isAnonymous) { signOut(auth); return; }
+    window.dispatchEvent(new CustomEvent('firebase-auth-changed', {
+      detail: user ? { uid: user.uid, email: user.email || null } : { uid: null, email: null }
+    }));
   });
 
   window.firebaseSync = {
-    ready: readyPromise,
-    isAnonymous: () => auth.currentUser ? auth.currentUser.isAnonymous : true,
     currentEmail: () => auth.currentUser ? auth.currentUser.email : null,
     async load(uid) {
       const snap = await getDoc(doc(db, 'upkeep', uid));
@@ -637,10 +630,8 @@
       const result = await signInWithPopup(auth, googleProvider);
       return result.user.uid;
     },
-    async signOutToAnonymous() {
+    async signOutUser() {
       await signOut(auth);
-      const result = await signInAnonymously(auth);
-      return result.user.uid;
     }
   };
 </script>
@@ -787,11 +778,11 @@ function getSortedActiveTasks() {
 
   const filtered = withMeta.filter(({ meta }) => taskMatchesFilter(meta, filterMode));
 
-  // sort: StatusSort asc (n/a, all active) -> OverdueByRule desc (overdueDays>=100 first)
+  // sort: OverdueByRule desc (overdue by a full cycle, or 100 days if that is shorter, goes first)
   // -> Override desc (Yes before No) -> SortMetric desc
   filtered.sort((a, b) => {
-    const aRule = a.meta.overdueDays >= 100 ? 1 : 0;
-    const bRule = b.meta.overdueDays >= 100 ? 1 : 0;
+    const aRule = a.meta.overdueDays >= Math.min(100, a.meta.freqDays) ? 1 : 0;
+    const bRule = b.meta.overdueDays >= Math.min(100, b.meta.freqDays) ? 1 : 0;
     if (aRule !== bRule) return bRule - aRule;
 
     const aOv = a.meta.override ? 1 : 0;
@@ -990,7 +981,7 @@ async function fetchTodoistStats(url) {
 }
 
 async function refreshTodoistStats(showErrors) {
-  if (!state.todoistSheetUrl) return;
+  if (!userId || !state.todoistSheetUrl) return;
   try {
     const stats = await fetchTodoistStats(state.todoistSheetUrl);
     state.todoistStats = stats.sort((a, b) => a.date.localeCompare(b.date));
@@ -1003,46 +994,83 @@ async function refreshTodoistStats(showErrors) {
   }
 }
 
-async function loadState() {
-  // 1. Show cached local data instantly so the app isn't blank while syncing
+const CACHE_UID_KEY = 'upkeep:cacheUid';
+const CACHE_EMAIL_KEY = 'upkeep:cacheEmail';
+let remoteLoaded = false; // never push to Firestore until we've seen the server copy (avoids overwriting it with a partial local one)
+
+function freshState() {
+  return { tasks: [], log: [], deletedIds: [], deletedLogKeys: [], scoreHistory: [], todoistSheetUrl: '', todoistStats: [], todoistStatsFetchedAt: null };
+}
+
+function cacheLocally() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) { applyParsed(JSON.parse(raw)); render(); }
-  } catch (e) { /* ignore */ }
-
-  // 2. Once signed in, pull the synced copy from Firestore (source of truth)
-  try {
-    // window.firebaseSync is defined by a separate <script type="module">, which
-    // can still be loading when this runs — wait briefly for it to appear.
-    const bridge = await waitForFirebaseSync(5000);
-    if (!bridge) throw new Error('firebaseSync bridge not available');
-
-    // bridge.ready can hang indefinitely if sign-in is misconfigured (e.g. Anonymous
-    // auth disabled in Firebase) — race it against a timeout so we always fall back.
-    const timeout = (ms) => new Promise((_, reject) => setTimeout(() => reject(new Error('timed out')), ms));
-    userId = await Promise.race([bridge.ready, timeout(8000)]);
-
-    const remote = await Promise.race([bridge.load(userId), timeout(8000)]);
-    if (remote) {
-      applyParsed(mergeStates(state, remote));
-      recordScoreSnapshot();
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-      bridge.save(userId, state).catch(() => {});
-      render();
-      return;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    if (userId) {
+      localStorage.setItem(CACHE_UID_KEY, userId);
+      localStorage.setItem(CACHE_EMAIL_KEY, authState.email || '');
     }
   } catch (e) {
-    console.error('Firestore load failed, using local data', e);
-    if (state.tasks.length) { showToast('Could not sync — showing data saved on this device'); render(); return; }
+    console.error('Local save failed', e);
   }
+}
 
-  // 3. No remote data and no local cache yet → seed with defaults
-  if (!state.tasks.length) {
-    state.tasks = JSON.parse(JSON.stringify(DEFAULT_TASKS));
-    state.log = JSON.parse(JSON.stringify(DEFAULT_LOG));
-    nextId = Math.max(0, ...state.tasks.map(t => t.id)) + 1;
+function clearLocalCache() {
+  try {
+    [STORAGE_KEY, CACHE_UID_KEY, CACHE_EMAIL_KEY].forEach(k => localStorage.removeItem(k));
+  } catch (e) { /* ignore */ }
+}
+
+// Called whenever a signed-in user is confirmed
+async function startSession(uid, email) {
+  userId = uid;
+  authState = { email: email || null, isAnonymous: false };
+  authResolved = true;
+  remoteLoaded = false;
+  state = freshState();
+  nextId = 1;
+
+  // Show this device's cached copy instantly, but only if it belongs to this account
+  try {
+    if (localStorage.getItem(CACHE_UID_KEY) === uid) {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) applyParsed(JSON.parse(raw));
+    } else {
+      clearLocalCache();
+    }
+  } catch (e) { /* ignore */ }
+  render();
+  startRealtimeSync(uid);
+
+  try {
+    const bridge = await waitForFirebaseSync(5000);
+    if (!bridge) throw new Error('firebaseSync bridge not available');
+    const timeout = (ms) => new Promise((_, reject) => setTimeout(() => reject(new Error('timed out')), ms));
+    const remote = await Promise.race([bridge.load(uid), timeout(8000)]);
+    if (userId !== uid) return;
+    if (remote) applyParsed(mergeStates(state, remote));
+    recordScoreSnapshot();
+    remoteLoaded = true;
+    cacheLocally();
+    bridge.save(uid, state).catch(() => {});
+  } catch (e) {
+    if (userId !== uid) return;
+    console.error('Firestore load failed, using local data', e);
+    if (state.tasks.length) showToast('Could not sync — showing data saved on this device');
   }
-  saveState();
+  render();
+  refreshTodoistStats(false);
+}
+
+// Called when nobody is signed in: wipe everything from memory and from this device
+function endSession() {
+  authResolved = true;
+  userId = null;
+  authState = { email: null, isAnonymous: true };
+  remoteLoaded = false;
+  if (unsubscribeRemote) { unsubscribeRemote(); unsubscribeRemote = null; }
+  state = freshState();
+  nextId = 1;
+  clearLocalCache();
   render();
 }
 
@@ -1053,22 +1081,23 @@ function startRealtimeSync(uid) {
   if (unsubscribeRemote) { unsubscribeRemote(); unsubscribeRemote = null; }
   if (!uid || !window.firebaseSync || !window.firebaseSync.subscribe) return;
   unsubscribeRemote = window.firebaseSync.subscribe(uid, (remote) => {
+    if (userId !== uid) return;
     applyParsed(mergeStates(state, remote));
     recordScoreSnapshot();
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    const first = !remoteLoaded;
+    remoteLoaded = true;
+    cacheLocally();
+    if (first) window.firebaseSync.save(uid, state).catch(() => {});
     render();
   });
 }
 
 async function saveState() {
+  if (!userId) return;
   recordScoreSnapshot();
+  cacheLocally();
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch (e) {
-    console.error('Local save failed', e);
-  }
-  try {
-    if (userId && window.firebaseSync) window.firebaseSync.save(userId, state).catch(() => {});
+    if (remoteLoaded && window.firebaseSync) window.firebaseSync.save(userId, state).catch(() => {});
   } catch (e) {
     console.error('Sync failed — saved locally only', e);
     showToast('Saved on this device, but sync failed');
@@ -1431,18 +1460,10 @@ function renderSettingsTab() {
     <div class="section">
       <div class="section-head"><div class="section-title">Account</div></div>
       <div class="card" style="padding: 18px 20px;">
-        ${!authResolved
-          ? `<p style="font-size: 13.5px; color: var(--ink-faint); line-height: 1.5; margin: 0;">Checking sign-in status…</p>`
-          : authState.email
-          ? `<p style="font-size: 13.5px; color: var(--ink-soft); line-height: 1.5; margin: 0 0 14px;">
-               Signed in as <strong style="color: var(--ink);">${escapeHtml(authState.email)}</strong>. This account's data syncs across any device you sign into.
-             </p>
-             <button class="btn btn-ghost" style="align-self:flex-start;" data-action="sign-out">Sign out</button>`
-          : `<p style="font-size: 13.5px; color: var(--ink-soft); line-height: 1.5; margin: 0 0 14px;">
-               You're using this app anonymously — your data is tied to this browser only. Sign in with Google to sync the same list across your phone, laptop, or any other device.
-             </p>
-             <button class="btn btn-primary" style="align-self:flex-start;" data-action="sign-in-google">Sign in with Google</button>`
-        }
+        <p style="font-size: 13.5px; color: var(--ink-soft); line-height: 1.5; margin: 0 0 14px;">
+          Signed in as <strong style="color: var(--ink);">${escapeHtml(authState.email || 'your account')}</strong>. This account's data syncs across any device you sign into.
+        </p>
+        <button class="btn btn-ghost" style="align-self:flex-start;" data-action="sign-out">Sign out</button>
       </div>
     </div>
 
@@ -1495,6 +1516,25 @@ function renderSettingsTab() {
 
 function render() {
   const app = document.getElementById('app');
+  if (!authResolved) {
+    app.innerHTML = `<div class="loading-state">Loading your ledger…</div>`;
+    return;
+  }
+  if (!userId) {
+    app.innerHTML = `
+      <header class="top">
+        <div class="wordmark">Upkeep<span class="dot">.</span></div>
+      </header>
+      <div class="card" style="padding: 28px 24px; margin-top: 24px;">
+        <p style="font-size: 14px; color: var(--ink-soft); line-height: 1.5; margin: 0 0 18px;">
+          Sign in with Google to see and manage your tasks.
+        </p>
+        <button class="btn btn-primary" data-action="sign-in-google">Sign in with Google</button>
+      </div>
+    `;
+    attachHandlers();
+    return;
+  }
   const prevScroll = [...document.querySelectorAll('.chart-scroll')].map(el => ({
     left: el.scrollLeft,
     atEnd: el.scrollLeft + el.clientWidth >= el.scrollWidth - 4
@@ -1704,42 +1744,22 @@ function attachHandlers() {
     try {
       const bridge = await waitForFirebaseSync(3000);
       if (!bridge) throw new Error('Firebase not ready yet — try again in a moment');
-      const localSnapshot = JSON.parse(JSON.stringify(state));
-      const newUid = await bridge.signInWithGoogle();
-
-      // If this Google account already has data in Firestore, that takes priority
-      // (it's the "real" cross-device copy). Otherwise, carry over what's on this device.
-      const remote = await bridge.load(newUid);
-      if (remote) {
-        applyParsed(remote);
-      } else {
-        await bridge.save(newUid, localSnapshot);
-      }
-      userId = newUid;
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-      startRealtimeSync(userId);
-      render();
-      showToast(remote ? 'Signed in — loaded your synced data' : 'Signed in — this device\'s data is now linked to your account');
+      await bridge.signInWithGoogle(); // the auth listener takes it from here
     } catch (e) {
       console.error('Google sign-in failed', e);
       showToast('Sign-in failed — check your popup blocker and try again');
-      render();
+      signInBtn.textContent = 'Sign in with Google';
+      signInBtn.disabled = false;
     }
   });
 
   const signOutBtn = document.querySelector('[data-action="sign-out"]');
   if (signOutBtn) signOutBtn.addEventListener('click', async () => {
-    if (!confirm('Sign out? This device will go back to local-only mode.')) return;
+    if (!confirm("Sign out? You'll need to sign in again to see your tasks.")) return;
     try {
       const bridge = await waitForFirebaseSync(3000);
-      if (bridge) {
-        userId = await bridge.signOutToAnonymous();
-        authState = { email: null, isAnonymous: true };
-        authResolved = true;
-        startRealtimeSync(userId);
-      }
-      render();
-      showToast('Signed out');
+      if (bridge) await bridge.signOutUser();
+      else endSession();
     } catch (e) {
       console.error('Sign-out failed', e);
       showToast('Could not sign out — try again');
@@ -1770,21 +1790,23 @@ function attachHandlers() {
 }
 
 window.addEventListener('firebase-auth-changed', (e) => {
-  authState = { email: e.detail.email, isAnonymous: e.detail.isAnonymous };
-  authResolved = true;
-  if (activeTab === 'settings') render();
+  const { uid, email } = e.detail;
+  if (uid) {
+    if (uid === userId && remoteLoaded) { authState.email = email; return; }
+    startSession(uid, email);
+  } else {
+    endSession();
+  }
 });
 
-(async function init() {
-  await loadState();
-  try {
-    const bridge = await waitForFirebaseSync(2000);
-    if (bridge) { authState = { email: bridge.currentEmail(), isAnonymous: bridge.isAnonymous() }; authResolved = true; }
-  } catch (e) { /* ignore */ }
-  render();
-  startRealtimeSync(userId);
-  refreshTodoistStats(false);
-})();
+// If Firebase can't be reached at all (e.g. first load while offline), fall back to
+// the last signed-in account's cached copy rather than hanging on the loading screen.
+setTimeout(() => {
+  if (authResolved) return;
+  const uid = localStorage.getItem(CACHE_UID_KEY);
+  if (uid) startSession(uid, localStorage.getItem(CACHE_EMAIL_KEY));
+  else { authResolved = true; render(); }
+}, 8000);
 
 // Todoist has no live push (it's a static sheet, not Firestore) — re-check it every
 // time the app is opened/foregrounded so it doesn't need a manual refresh either.
