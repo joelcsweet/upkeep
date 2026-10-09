@@ -249,8 +249,6 @@
   .tag.freq { background: #EFEAE0; color: var(--ink-soft); }
   .tag.p1 { background: var(--clay-soft); color: var(--clay-deep); }
   .tag.p2 { background: var(--gold-soft); color: #8A611F; }
-  .tag.nth { background: var(--sage-soft); color: #4a6140; }
-  .tag.nth.now { background: var(--gold-soft); color: #8A611F; font-weight: 600; }
 
   .task-notes {
     font-size: 13px;
@@ -707,20 +705,6 @@ function metricTile(card, key, label, value, selectedKey, accentSoft, big) {
   </div>`;
 }
 
-function ordinal(n) {
-  const v = n % 100;
-  const suffix = (v >= 11 && v <= 13) ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] || 'th');
-  return n + suffix;
-}
-
-// "Every Nth time" tasks: how many completions until the special one (1 = it's this time)
-function nthStatus(task) {
-  const n = Number(task.nthEvery);
-  if (!n || n < 2 || !task.nthNote) return null;
-  const done = task.timesDone || 0;
-  return { n, untilSpecial: n - (done % n), note: task.nthNote };
-}
-
 function daysBetween(a, b) {
   const ms = b.setHours(0,0,0,0) - a.setHours(0,0,0,0);
   return Math.round(ms / 86400000);
@@ -1148,14 +1132,10 @@ async function completeTask(taskId, completedOn) {
 
   // mirror VBA: remove log entries for same task logged in last 24h, then add new entry
   const cutoff = Date.now() - 86400000;
-  const logLenBefore = state.log.length;
   state.log = state.log.filter(e => !(( e.taskId === taskId || e.task === task.name) && new Date(e.loggedAt).getTime() >= cutoff));
-  const replacedRecent = state.log.length < logLenBefore; // re-ticking within 24h replaces, so it doesn't count twice
-  const prevTimesDone = task.timesDone || 0;
-  state.log.push({ loggedAt: nowLocalIso(), taskId, task: task.name, completedDate: completedStr, prevLastOccurrence: prevLast, prevTimesDone, backdated: !!completedOn });
+  state.log.push({ loggedAt: nowLocalIso(), taskId, task: task.name, completedDate: completedStr, prevLastOccurrence: prevLast, backdated: !!completedOn });
 
   const prevUpdatedAt = task.updatedAt;
-  if (!replacedRecent) task.timesDone = prevTimesDone + 1;
   task.lastOccurrence = completedStr;
   task.updatedAt = new Date().toISOString();
   await saveState();
@@ -1163,7 +1143,6 @@ async function completeTask(taskId, completedOn) {
   const dateNote = completedStr === toDateStr(todayDate()) ? '' : ` for ${fmtDateShort(completedStr)}`;
   showToast(`Marked "${task.name}" done${dateNote}`, async () => {
     task.lastOccurrence = prevLast;
-    task.timesDone = prevTimesDone;
     task.updatedAt = prevUpdatedAt;
     state.log.pop();
     await saveState();
@@ -1229,12 +1208,6 @@ function renderTaskRow({ task, meta }, opts = {}) {
   const tags = [];
   tags.push(`<span class="tag freq">${task.frequency}</span>`);
   tags.push(`<span class="tag p${task.priority}">P${task.priority}</span>`);
-  const nth = nthStatus(task);
-  if (nth) {
-    tags.push(nth.untilSpecial === 1
-      ? `<span class="tag nth now">This time: ${escapeHtml(nth.note)}</span>`
-      : `<span class="tag nth">Every ${ordinal(nth.n)} time: ${escapeHtml(nth.note)} · in ${nth.untilSpecial}</span>`);
-  }
 
   const isBackdating = backdatingId === task.id;
 
@@ -1345,20 +1318,6 @@ function renderAddForm() {
         <div class="field">
           <label>Last done</label>
           <input type="date" name="lastOccurrence" value="${v.lastOccurrence}">
-        </div>
-      </div>
-      <div class="field-row">
-        <div class="field" style="flex: 0 1 130px;">
-          <label>Every Nth time</label>
-          <input type="number" name="nthEvery" min="2" max="52" step="1" value="${v.nthEvery || ''}" placeholder="e.g. 3">
-        </div>
-        <div class="field" style="flex: 2 1 200px;">
-          <label>What's different that time</label>
-          <input type="text" name="nthNote" value="${escapeHtml(v.nthNote || '')}" placeholder="e.g. Deep clean — also scrub the grout">
-        </div>
-        <div class="field" style="flex: 0 1 110px;">
-          <label>Done so far</label>
-          <input type="number" name="timesDone" min="0" step="1" value="${v.timesDone || 0}">
         </div>
       </div>
       <div class="field-row">
@@ -1730,7 +1689,6 @@ function attachHandlers() {
         ? state.tasks.find(t => t.id === Number(taskIdAttr))
         : state.tasks.find(t => t.name === taskName);
       if (task && entry) {
-        if (entry.prevTimesDone !== undefined) task.timesDone = entry.prevTimesDone;
         if (entry.prevLastOccurrence !== undefined) {
           task.lastOccurrence = entry.prevLastOccurrence;
         } else {
@@ -1824,22 +1782,8 @@ function attachHandlers() {
         frequency: fd.get('frequency'),
         priority: Number(fd.get('priority')),
         lastOccurrence: fd.get('lastOccurrence') || toDateStr(todayDate()),
-        notes: (fd.get('notes') || '').trim(),
-        nthEvery: null,
-        nthNote: '',
-        timesDone: Math.max(0, parseInt(fd.get('timesDone'), 10) || 0)
+        notes: (fd.get('notes') || '').trim()
       };
-      const nthEvery = parseInt(fd.get('nthEvery'), 10);
-      const nthNote = (fd.get('nthNote') || '').trim();
-      if (nthEvery >= 2) {
-        if (!nthNote) {
-          showToast('Add what\'s different on that time (or clear "Every Nth time")');
-          document.querySelector('[name="nthNote"]')?.focus();
-          return;
-        }
-        data.nthEvery = nthEvery;
-        data.nthNote = nthNote;
-      }
       saveTaskForm(data, editingId);
     });
   }
